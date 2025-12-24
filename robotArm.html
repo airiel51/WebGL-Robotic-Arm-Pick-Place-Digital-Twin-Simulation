@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html;charset=utf-8" >
+    <title>Robot Arm Pick & Place</title>
+</head>
+<body>
+    <div style="font-family: Arial; padding: 10px; background: #f0f0f0; border-bottom: 2px solid #ccc;">
+        <h3>Robot Arm Control Panel</h3>
+        
+        <div>
+            Body Angle (Base): -180 
+            <input id="slider1" type="range" min="-180" max="180" step="10" value="0" />
+            180
+        </div>
+        <div>
+            Lower Arm Angle: -180 
+            <input id="slider2" type="range" min="-180" max="180" step="10" value="0" />
+            180
+        </div>
+        <div>
+            Upper Arm Angle: -180 
+            <input id="slider3" type="range" min="-180" max="180" step="10" value="0" />
+            180
+        </div>
+
+        <div>
+            Gripper Rotation: -90 
+            <input id="slider4" type="range" min="-90" max="90" step="10" value="0" />
+            90
+        </div>
+        <div>
+            Finger Open/Close: Close 
+            <input id="slider5" type="range" min="0" max="1.5" step="0.1" value="1.0" />
+            Open
+        </div>
+        
+        <hr>
+        
+        <div>
+            <button id="btnAnim" style="padding: 10px 20px; background: #4CAF50; color: white; border: none; cursor: pointer;">Start Pick & Place</button>
+            <button id="btnReset" style="padding: 10px 20px; background: #f44336; color: white; border: none; cursor: pointer;">Reset</button>
+        </div>
+        <div id="status" style="margin-top: 10px; color: blue; font-weight: bold;">Status: Manual Control</div>
+    </div>
+
+    <canvas id="gl-canvas" width="800" height="600" style="border:1px solid #000000;"></canvas>
+
+    <script id="vertex-shader" type="x-shader/x-vertex">
+    #version 300 es
+    in vec4 aPosition;
+    in vec4 aColor;
+    out vec4 vColor;
+    uniform mat4 modelViewMatrix;
+    uniform mat4 projectionMatrix;
+    void main()
+    {
+        vColor = aColor;
+        gl_Position = projectionMatrix * modelViewMatrix * aPosition;
+    }
+    </script>
+
+    <script id="fragment-shader" type="x-shader/x-fragment">
+    #version 300 es
+    precision mediump float;
+    in vec4 vColor;
+    out vec4 fColor;
+    void main()
+    {
+        fColor = vColor;
+    }
+    </script>
+
+    <script src="initShaders.js"></script>
+    <script src="MVnew.js"></script>
+
+    <script src="robotArm.js"></script>
+
+</body>
+</html>
