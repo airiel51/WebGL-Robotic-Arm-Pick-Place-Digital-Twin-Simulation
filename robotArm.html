@@ -1,80 +1,502 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <meta http-equiv="Content-Type" content="text/html;charset=utf-8" >
-    <title>Robot Arm Pick & Place</title>
+    <meta charset="UTF-8">
+    <title>WebGL Robot Arm - Natural Grip</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/2.8.1/gl-matrix-min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #222; color: white; display: flex; flex-direction: column; align-items: center; margin: 0; }
+        canvas { background: #111; border: 1px solid #444; margin-top: 10px; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
+        #controls { background: #333; padding: 20px; border-radius: 8px; margin-top: 15px; width: 600px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .control-group { display: flex; flex-direction: column; margin-bottom: 10px; }
+        label { font-size: 0.9em; margin-bottom: 5px; color: #aaa; }
+        input[type=range] { width: 100%; cursor: pointer; }
+        .status { grid-column: span 2; text-align: center; color: #4CAF50; font-weight: bold; margin-bottom: 10px; height: 20px; }
+        .instructions { font-size: 0.8em; color: #777; grid-column: span 2; text-align: center; margin-top: 10px; }
+        button { grid-column: span 2; padding: 10px; background: #007BFF; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 1em; }
+        button:hover { background: #0056b3; }
+        button:disabled { background: #555; cursor: not-allowed; }
+    </style>
 </head>
 <body>
-    <div style="font-family: Arial; padding: 10px; background: #f0f0f0; border-bottom: 2px solid #ccc;">
-        <h3>Robot Arm Control Panel</h3>
+
+    <canvas id="glcanvas" width="800" height="600"></canvas>
+
+    <div id="controls">
+        <div class="status" id="statusText">Mode: MANUAL CONTROL</div>
         
-        <div>
-            Body Angle (Base): -180 
-            <input id="slider1" type="range" min="-180" max="180" step="10" value="0" />
-            180
+        <div class="control-group">
+            <label>Base Rotation (Left/Right Arrows)</label>
+            <input type="range" id="baseSlider" min="-180" max="180" value="0">
         </div>
-        <div>
-            Lower Arm Angle: -180 
-            <input id="slider2" type="range" min="-180" max="180" step="10" value="0" />
-            180
+        <div class="control-group">
+            <label>Lower Arm (Up/Down Arrows)</label>
+            <input type="range" id="lowerSlider" min="-45" max="45" value="0">
         </div>
-        <div>
-            Upper Arm Angle: -180 
-            <input id="slider3" type="range" min="-180" max="180" step="10" value="0" />
-            180
+        <div class="control-group">
+            <label>Upper Arm (W / S Keys)</label>
+            <input type="range" id="upperSlider" min="-90" max="90" value="0">
+        </div>
+        <div class="control-group">
+            <label>Gripper (Spacebar)</label>
+            <input type="range" id="gripperSlider" min="0" max="100" value="100">
         </div>
 
-        <div>
-            Gripper Rotation: -90 
-            <input id="slider4" type="range" min="-90" max="90" step="10" value="0" />
-            90
-        </div>
-        <div>
-            Finger Open/Close: Close 
-            <input id="slider5" type="range" min="0" max="1.5" step="0.1" value="1.0" />
-            Open
-        </div>
-        
-        <hr>
-        
-        <div>
-            <button id="btnAnim" style="padding: 10px 20px; background: #4CAF50; color: white; border: none; cursor: pointer;">Start Pick & Place</button>
-            <button id="btnReset" style="padding: 10px 20px; background: #f44336; color: white; border: none; cursor: pointer;">Reset</button>
-        </div>
-        <div id="status" style="margin-top: 10px; color: blue; font-weight: bold;">Status: Manual Control</div>
+        <button id="btnAuto" onclick="startAutoSequence()">▶ START AUTO PICK & PLACE</button>
+        <div class="instructions">Keyboard: Arrows (Base/Lower), W/S (Upper), Space (Grip)</div>
     </div>
 
-    <canvas id="gl-canvas" width="800" height="600" style="border:1px solid #000000;"></canvas>
+    <script id="vs" type="x-shader/x-vertex">
+        attribute vec4 aVertexPosition;
+        attribute vec3 aVertexNormal;
+        uniform mat4 uModelViewMatrix;
+        uniform mat4 uProjectionMatrix;
+        uniform mat4 uNormalMatrix;
+        varying highp vec3 vLighting;
 
-    <script id="vertex-shader" type="x-shader/x-vertex">
-    #version 300 es
-    in vec4 aPosition;
-    in vec4 aColor;
-    out vec4 vColor;
-    uniform mat4 modelViewMatrix;
-    uniform mat4 projectionMatrix;
-    void main()
-    {
-        vColor = aColor;
-        gl_Position = projectionMatrix * modelViewMatrix * aPosition;
-    }
+        void main(void) {
+            gl_Position = uProjectionMatrix * uModelViewMatrix * aVertexPosition;
+
+            // Simple directional lighting
+            highp vec3 ambientLight = vec3(0.3, 0.3, 0.3);
+            highp vec3 directionalLightColor = vec3(1, 1, 1);
+            highp vec3 directionalVector = normalize(vec3(0.85, 0.8, 0.75));
+            highp vec4 transformedNormal = uNormalMatrix * vec4(aVertexNormal, 1.0);
+            highp float directional = max(dot(transformedNormal.xyz, directionalVector), 0.0);
+            vLighting = ambientLight + (directionalLightColor * directional);
+        }
     </script>
 
-    <script id="fragment-shader" type="x-shader/x-fragment">
-    #version 300 es
-    precision mediump float;
-    in vec4 vColor;
-    out vec4 fColor;
-    void main()
-    {
-        fColor = vColor;
-    }
+    <script id="fs" type="x-shader/x-fragment">
+        varying highp vec3 vLighting;
+        uniform highp vec4 uColor;
+
+        void main(void) {
+            gl_FragColor = vec4(uColor.rgb * vLighting, uColor.a);
+        }
     </script>
 
-    <script src="initShaders.js"></script>
-    <script src="MVnew.js"></script>
+    <script>
+        // --- GLOBAL VARIABLES ---
+        let gl;
+        let programInfo;
+        let buffers;
+        
+        // Robot State
+        const state = {
+            baseAngle: 0,
+            lowerAngle: 0,
+            upperAngle: 0,
+            gripperOpen: 1.0, // 0.0 = closed, 1.0 = open
+            
+            // Object State
+            isGripped: false,
+            objPos: [8, 0.75, 8], // Initial world position of the cube (x, y, z)
+            
+            // Animation / Auto Mode
+            isAuto: false,
+            autoStep: 0,
+            timer: 0
+        };
 
-    <script src="robotArm.js"></script>
+        // UI Elements
+        const ui = {
+            base: document.getElementById('baseSlider'),
+            lower: document.getElementById('lowerSlider'),
+            upper: document.getElementById('upperSlider'),
+            gripper: document.getElementById('gripperSlider'),
+            status: document.getElementById('statusText'),
+            btn: document.getElementById('btnAuto')
+        };
 
+        // --- WEBGL INIT ---
+        window.onload = function() {
+            const canvas = document.getElementById('glcanvas');
+            gl = canvas.getContext('webgl');
+
+            if (!gl) { alert('WebGL not supported'); return; }
+
+            const shaderProgram = initShaderProgram(gl, document.getElementById('vs').text, document.getElementById('fs').text);
+            
+            programInfo = {
+                program: shaderProgram,
+                attribLocations: {
+                    vertexPosition: gl.getAttribLocation(shaderProgram, 'aVertexPosition'),
+                    vertexNormal: gl.getAttribLocation(shaderProgram, 'aVertexNormal'),
+                },
+                uniformLocations: {
+                    projectionMatrix: gl.getUniformLocation(shaderProgram, 'uProjectionMatrix'),
+                    modelViewMatrix: gl.getUniformLocation(shaderProgram, 'uModelViewMatrix'),
+                    normalMatrix: gl.getUniformLocation(shaderProgram, 'uNormalMatrix'),
+                    color: gl.getUniformLocation(shaderProgram, 'uColor'),
+                },
+            };
+
+            buffers = initBuffers(gl);
+
+            // Inputs
+            setupInputs();
+
+            // Loop
+            requestAnimationFrame(render);
+        };
+
+        // --- CORE RENDERING LOOP ---
+        function render(now) {
+            // Update logic (Automation or Manual inputs)
+            updateState();
+
+            gl.clearColor(0.1, 0.1, 0.1, 1.0);
+            gl.clearDepth(1.0);
+            gl.enable(gl.DEPTH_TEST);
+            gl.depthFunc(gl.LEQUAL);
+            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+            const projectionMatrix = mat4.create();
+            mat4.perspective(projectionMatrix, 45 * Math.PI / 180, gl.canvas.width / gl.canvas.height, 0.1, 100.0);
+
+            const viewMatrix = mat4.create();
+            mat4.translate(viewMatrix, viewMatrix, [0.0, -5.0, -35.0]); // Camera position
+            mat4.rotate(viewMatrix, viewMatrix, 0.5, [1, 0, 0]); // Tilt camera down slightly
+
+            gl.useProgram(programInfo.program);
+            gl.uniformMatrix4fv(programInfo.uniformLocations.projectionMatrix, false, projectionMatrix);
+
+            // --- HIERARCHY CALCULATION ---
+
+            // 1. BASE
+            let baseMat = mat4.clone(viewMatrix);
+            mat4.rotate(baseMat, baseMat, state.baseAngle * Math.PI/180, [0, 1, 0]);
+            drawCube(baseMat, [2, 1, 2], [0.5, 0.5, 0.5, 1.0]); // Base Base
+
+            // 2. LOWER ARM
+            let lowerMat = mat4.clone(baseMat);
+            mat4.translate(lowerMat, lowerMat, [0, 1.0, 0]); // Move to top of base
+            mat4.rotate(lowerMat, lowerMat, state.lowerAngle * Math.PI/180, [1, 0, 0]); // Joint rotation
+            
+            // Draw visual arm
+            let lowerVisual = mat4.clone(lowerMat);
+            mat4.translate(lowerVisual, lowerVisual, [0, 2.5, 0]); // Move center of cube up
+            drawCube(lowerVisual, [1, 5, 1], [0.2, 0.4, 0.8, 1.0]); // Blue Arm
+
+            // 3. UPPER ARM
+            let upperMat = mat4.clone(lowerMat);
+            mat4.translate(upperMat, upperMat, [0, 5.0, 0]); // Move to top of lower arm
+            mat4.rotate(upperMat, upperMat, state.upperAngle * Math.PI/180, [1, 0, 0]);
+
+            let upperVisual = mat4.clone(upperMat);
+            mat4.translate(upperVisual, upperVisual, [0, 2.0, 0]);
+            drawCube(upperVisual, [0.8, 4, 0.8], [0.8, 0.2, 0.2, 1.0]); // Red Arm
+
+            // 4. GRIPPER BASE (The Wrist)
+            let wristMat = mat4.clone(upperMat);
+            mat4.translate(wristMat, wristMat, [0, 4.0, 0]);
+            drawCube(wristMat, [1.2, 0.5, 1.2], [0.6, 0.6, 0.6, 1.0]);
+
+            // 5. FINGERS
+            let fingerOffset = 0.3 + (state.gripperOpen * 0.5); // Opens from 0.3 to 0.8
+            
+            // Left Finger
+            let f1Mat = mat4.clone(wristMat);
+            mat4.translate(f1Mat, f1Mat, [-fingerOffset, 0.8, 0]);
+            drawCube(f1Mat, [0.2, 1.5, 0.5], [0.7, 0.7, 0.7, 1.0]);
+
+            // Right Finger
+            let f2Mat = mat4.clone(wristMat);
+            mat4.translate(f2Mat, f2Mat, [fingerOffset, 0.8, 0]);
+            drawCube(f2Mat, [0.2, 1.5, 0.5], [0.7, 0.7, 0.7, 1.0]);
+
+
+            // --- OBJECT LOGIC (THE NATURAL FIX) ---
+            let objMat = mat4.create();
+
+            if (state.isGripped) {
+                // *** NATURAL GRIP MODE ***
+                // The object is a child of the wristMat (The end effector)
+                mat4.copy(objMat, wristMat);
+                // Translate it to be *between* the fingers
+                mat4.translate(objMat, objMat, [0, 0.8, 0]); 
+            } else {
+                // *** WORLD MODE ***
+                // It sits at its world coordinates
+                mat4.copy(objMat, viewMatrix); // Start from view (world 0,0)
+                mat4.translate(objMat, objMat, state.objPos);
+            }
+            
+            drawCube(objMat, [1.5, 1.5, 1.5], [1.0, 0.8, 0.2, 1.0]); // Gold Object
+
+            // Draw Floor
+            let floorMat = mat4.clone(viewMatrix);
+            mat4.translate(floorMat, floorMat, [0, -1, 0]);
+            drawCube(floorMat, [20, 0.2, 20], [0.2, 0.2, 0.2, 1.0]);
+
+            requestAnimationFrame(render);
+        }
+
+        // --- AUTOMATION & LOGIC ---
+
+        function startAutoSequence() {
+            state.isAuto = true;
+            state.autoStep = 0;
+            state.timer = 0;
+            state.isGripped = false;
+            ui.btn.disabled = true;
+            ui.status.innerText = "Status: MOVING TO OBJECT...";
+            ui.status.style.color = "#FFD700";
+        }
+
+        // Smoothly interpolate a value
+        function lerp(start, end, speed) {
+            return start + (end - start) * speed;
+        }
+
+        function updateState() {
+            if (!state.isAuto) {
+                // Manual Control Sync
+                state.baseAngle = parseFloat(ui.base.value);
+                state.lowerAngle = parseFloat(ui.lower.value);
+                state.upperAngle = parseFloat(ui.upper.value);
+                state.gripperOpen = parseFloat(ui.gripper.value) / 100.0;
+                
+                // Manual Grip Logic check
+                // (Simplified: if fingers close and close to floor, grip it)
+                if (state.gripperOpen < 0.1 && !state.isGripped) {
+                    state.isGripped = true; 
+                } else if (state.gripperOpen > 0.5 && state.isGripped) {
+                    // Release logic: Calculate world position dropped
+                    // For manual demo simplicity, we just drop it straight down to Y=0.75
+                    state.isGripped = false;
+                    // In a full physics engine we'd calculate exact transform, 
+                    // here we just reset it to the "Drop zone" or keep it attached logic roughly
+                }
+                return;
+            }
+
+            // --- AUTOMATIC SEQUENCE STATE MACHINE ---
+            // Angles: [Base, Lower, Upper]
+            const POS_PICK = [-45, 35, 30]; 
+            const POS_LIFT = [-45, -20, -20];
+            const POS_TURN = [45, -20, -20];
+            const POS_DROP = [45, 35, 30];
+
+            const speed = 0.05; // Movement speed
+            const gripSpeed = 0.05;
+
+            switch (state.autoStep) {
+                case 0: // Move to Object
+                    ui.status.innerText = "Auto: Approaching Object";
+                    state.baseAngle = lerp(state.baseAngle, POS_PICK[0], speed);
+                    state.lowerAngle = lerp(state.lowerAngle, POS_PICK[1], speed);
+                    state.upperAngle = lerp(state.upperAngle, POS_PICK[2], speed);
+                    state.gripperOpen = lerp(state.gripperOpen, 1.0, gripSpeed); // Ensure open
+
+                    // Check if close
+                    if (Math.abs(state.lowerAngle - POS_PICK[1]) < 0.5) {
+                        state.autoStep = 1; 
+                        state.timer = 0;
+                    }
+                    break;
+
+                case 1: // GRIP (Wait for it to close fully)
+                    ui.status.innerText = "Auto: Gripping...";
+                    state.gripperOpen = lerp(state.gripperOpen, 0.0, gripSpeed);
+                    
+                    if (state.gripperOpen < 0.05) {
+                        state.isGripped = true; // PARENTING HAPPENS HERE
+                        state.timer++;
+                        if (state.timer > 30) state.autoStep = 2; // Short pause
+                    }
+                    break;
+
+                case 2: // Lift
+                    ui.status.innerText = "Auto: Lifting";
+                    state.lowerAngle = lerp(state.lowerAngle, POS_LIFT[1], speed);
+                    state.upperAngle = lerp(state.upperAngle, POS_LIFT[2], speed);
+                    
+                    if (Math.abs(state.lowerAngle - POS_LIFT[1]) < 0.5) state.autoStep = 3;
+                    break;
+
+                case 3: // Turn to Drop Zone
+                    ui.status.innerText = "Auto: Turning";
+                    state.baseAngle = lerp(state.baseAngle, POS_TURN[0], speed);
+                    if (Math.abs(state.baseAngle - POS_TURN[0]) < 0.5) state.autoStep = 4;
+                    break;
+
+                case 4: // Lower to Drop
+                    ui.status.innerText = "Auto: Lowering";
+                    state.lowerAngle = lerp(state.lowerAngle, POS_DROP[1], speed);
+                    state.upperAngle = lerp(state.upperAngle, POS_DROP[2], speed);
+                    if (Math.abs(state.lowerAngle - POS_DROP[1]) < 0.5) state.autoStep = 5;
+                    break;
+
+                case 5: // Release
+                    ui.status.innerText = "Auto: Releasing";
+                    state.gripperOpen = lerp(state.gripperOpen, 1.0, gripSpeed);
+                    if (state.gripperOpen > 0.9) {
+                        state.isGripped = false;
+                        
+                        // *** SAVE DROP POSITION ***
+                        // In this demo, we know the drop zone is roughly symmetric
+                        // But strictly, we update the object's world pos here
+                        state.objPos = [-8, 0.75, 8]; // Example drop location
+                        
+                        state.autoStep = 6;
+                    }
+                    break;
+                
+                case 6: // Return Home / Reset
+                    ui.status.innerText = "Auto: Finished";
+                    state.baseAngle = lerp(state.baseAngle, 0, speed);
+                    state.lowerAngle = lerp(state.lowerAngle, 0, speed);
+                    state.upperAngle = lerp(state.upperAngle, 0, speed);
+                    
+                    if (Math.abs(state.baseAngle) < 1) {
+                        state.isAuto = false;
+                        ui.btn.disabled = false;
+                        ui.status.style.color = "#4CAF50";
+                        ui.status.innerText = "Mode: MANUAL CONTROL";
+                        // Update sliders to match current auto position
+                        ui.base.value = state.baseAngle;
+                        ui.lower.value = state.lowerAngle;
+                        ui.upper.value = state.upperAngle;
+                    }
+                    break;
+            }
+        }
+
+        // --- INPUTS ---
+        function setupInputs() {
+            // Keyboard
+            document.addEventListener('keydown', (e) => {
+                if(state.isAuto) return;
+                const step = 2;
+                switch(e.key) {
+                    case 'ArrowLeft': ui.base.value -= step; break;
+                    case 'ArrowRight': parseInt(ui.base.value) += step; ui.base.value = parseInt(ui.base.value) + step; break;
+                    case 'ArrowUp': ui.lower.value -= step; break;
+                    case 'ArrowDown': parseInt(ui.lower.value) += step; ui.lower.value = parseInt(ui.lower.value) + step; break;
+                    case 'w': case 'W': ui.upper.value -= step; break;
+                    case 's': case 'S': parseInt(ui.upper.value) += step; ui.upper.value = parseInt(ui.upper.value) + step; break;
+                    case ' ': 
+                        ui.gripper.value = (ui.gripper.value > 50) ? 0 : 100; // Toggle
+                        break;
+                }
+            });
+        }
+
+        // --- WEBGL HELPERS ---
+        function drawCube(modelMatrix, scale, color) {
+            let mvp = mat4.create();
+            // Scale the specific instance
+            let scaledM = mat4.clone(modelMatrix);
+            mat4.scale(scaledM, scaledM, scale);
+
+            // Calculate Normal Matrix (Inverse Transpose of ModelView)
+            let normalMatrix = mat4.create();
+            mat4.invert(normalMatrix, scaledM);
+            mat4.transpose(normalMatrix, normalMatrix);
+
+            gl.uniformMatrix4fv(programInfo.uniformLocations.modelViewMatrix, false, scaledM);
+            gl.uniformMatrix4fv(programInfo.uniformLocations.normalMatrix, false, normalMatrix);
+            gl.uniform4fv(programInfo.uniformLocations.color, color);
+
+            {
+                const numComponents = 3;
+                const type = gl.FLOAT;
+                const normalize = false;
+                const stride = 0;
+                const offset = 0;
+                gl.bindBuffer(gl.ARRAY_BUFFER, buffers.position);
+                gl.vertexAttribPointer(programInfo.attribLocations.vertexPosition, numComponents, type, normalize, stride, offset);
+                gl.enableVertexAttribArray(programInfo.attribLocations.vertexPosition);
+            }
+            {
+                const numComponents = 3;
+                gl.bindBuffer(gl.ARRAY_BUFFER, buffers.normal);
+                gl.vertexAttribPointer(programInfo.attribLocations.vertexNormal, numComponents, gl.FLOAT, false, 0, 0);
+                gl.enableVertexAttribArray(programInfo.attribLocations.vertexNormal);
+            }
+            {
+                gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffers.indices);
+                gl.drawElements(gl.TRIANGLES, 36, gl.UNSIGNED_SHORT, 0);
+            }
+        }
+
+        function initBuffers(gl) {
+            // Simple 1x1x1 Cube centered at 0,0,0
+            const positions = [
+                // Front face
+                -0.5, -0.5,  0.5,  0.5, -0.5,  0.5,  0.5,  0.5,  0.5, -0.5,  0.5,  0.5,
+                // Back face
+                -0.5, -0.5, -0.5, -0.5,  0.5, -0.5,  0.5,  0.5, -0.5,  0.5, -0.5, -0.5,
+                // Top face
+                -0.5,  0.5, -0.5, -0.5,  0.5,  0.5,  0.5,  0.5,  0.5,  0.5,  0.5, -0.5,
+                // Bottom face
+                -0.5, -0.5, -0.5,  0.5, -0.5, -0.5,  0.5, -0.5,  0.5, -0.5, -0.5,  0.5,
+                // Right face
+                 0.5, -0.5, -0.5,  0.5,  0.5, -0.5,  0.5,  0.5,  0.5,  0.5, -0.5,  0.5,
+                // Left face
+                -0.5, -0.5, -0.5, -0.5, -0.5,  0.5, -0.5,  0.5,  0.5, -0.5,  0.5, -0.5,
+            ];
+            const normals = [
+                // Front
+                 0.0,  0.0,  1.0,  0.0,  0.0,  1.0,  0.0,  0.0,  1.0,  0.0,  0.0,  1.0,
+                // Back
+                 0.0,  0.0, -1.0,  0.0,  0.0, -1.0,  0.0,  0.0, -1.0,  0.0,  0.0, -1.0,
+                // Top
+                 0.0,  1.0,  0.0,  0.0,  1.0,  0.0,  0.0,  1.0,  0.0,  0.0,  1.0,  0.0,
+                // Bottom
+                 0.0, -1.0,  0.0,  0.0, -1.0,  0.0,  0.0, -1.0,  0.0,  0.0, -1.0,  0.0,
+                // Right
+                 1.0,  0.0,  0.0,  1.0,  0.0,  0.0,  1.0,  0.0,  0.0,  1.0,  0.0,  0.0,
+                // Left
+                -1.0,  0.0,  0.0, -1.0,  0.0,  0.0, -1.0,  0.0,  0.0, -1.0,  0.0,  0.0,
+            ];
+            const indices = [
+                0,  1,  2,      0,  2,  3,    // front
+                4,  5,  6,      4,  6,  7,    // back
+                8,  9,  10,     8,  10, 11,   // top
+                12, 13, 14,     12, 14, 15,   // bottom
+                16, 17, 18,     16, 18, 19,   // right
+                20, 21, 22,     20, 22, 23,   // left
+            ];
+
+            const positionBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+
+            const normalBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, normalBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(normals), gl.STATIC_DRAW);
+
+            const indexBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
+
+            return { position: positionBuffer, normal: normalBuffer, indices: indexBuffer };
+        }
+
+        function initShaderProgram(gl, vsSource, fsSource) {
+            const vertexShader = loadShader(gl, gl.VERTEX_SHADER, vsSource);
+            const fragmentShader = loadShader(gl, gl.FRAGMENT_SHADER, fsSource);
+            const shaderProgram = gl.createProgram();
+            gl.attachShader(shaderProgram, vertexShader);
+            gl.attachShader(shaderProgram, fragmentShader);
+            gl.linkProgram(shaderProgram);
+            return shaderProgram;
+        }
+
+        function loadShader(gl, type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                console.error(gl.getShaderInfoLog(shader));
+                gl.deleteShader(shader);
+                return null;
+            }
+            return shader;
+        }
+    </script>
 </body>
 </html>
