@@ -81,6 +81,9 @@
         let gl;
         let programInfo;
         let buffers;
+
+        let wristWorldPos = [0, 0, 0];
+        let lastTime = 0;
         
         // Robot State
         const state = {
@@ -143,8 +146,14 @@
 
         // --- CORE RENDERING LOOP ---
         function render(now) {
+
+            now *= 0.001;
+
+            const dt = lastTime ? (now - lastTime) : 0;
+            lastTime =  now;
+
             // Update logic (Automation or Manual inputs)
-            updateState();
+            updateState(dt);
 
             gl.clearColor(0.1, 0.1, 0.1, 1.0);
             gl.clearDepth(1.0);
@@ -191,6 +200,11 @@
             // 4. GRIPPER BASE (The Wrist)
             let wristMat = mat4.clone(upperMat);
             mat4.translate(wristMat, wristMat, [0, 4.0, 0]);
+
+            wristWorldPos[0] = wristMat[12];
+            wristWorldPos[1] = wristMat[13];
+            wristWorldPos[2] = wristMat[14];
+
             drawCube(wristMat, [1.2, 0.5, 1.2], [0.6, 0.6, 0.6, 1.0]);
 
             // 5. FINGERS
@@ -244,123 +258,164 @@
             ui.status.innerText = "Status: MOVING TO OBJECT...";
             ui.status.style.color = "#FFD700";
         }
-
-        // Smoothly interpolate a value
-        function lerp(start, end, speed) {
-            return start + (end - start) * speed;
+        
+        function dist3(a,b) {
+            const dx = a[0] - b[0];
+            const dy = a[1] - b[1];
+            const dz = a[2] - b[2];
+            return Math.sqrt(dx * dx + dy * dy + dz * dz);
         }
 
-        function updateState() {
+        // Smoothly interpolate a value
+        function lerp(start, end, t) {
+            return start + (end - start) * t;
+        }
+
+        function updateState(dt) {
+            // ---- MANUAL MODE ----
             if (!state.isAuto) {
                 // Manual Control Sync
                 state.baseAngle = parseFloat(ui.base.value);
                 state.lowerAngle = parseFloat(ui.lower.value);
                 state.upperAngle = parseFloat(ui.upper.value);
                 state.gripperOpen = parseFloat(ui.gripper.value) / 100.0;
-                
-                // Manual Grip Logic check
-                // (Simplified: if fingers close and close to floor, grip it)
-                if (state.gripperOpen < 0.1 && !state.isGripped) {
-                    state.isGripped = true; 
-                } else if (state.gripperOpen > 0.5 && state.isGripped) {
-                    // Release logic: Calculate world position dropped
-                    // For manual demo simplicity, we just drop it straight down to Y=0.75
-                    state.isGripped = false;
-                    // In a full physics engine we'd calculate exact transform, 
-                    // here we just reset it to the "Drop zone" or keep it attached logic roughly
-                }
+
+                // (Keep your manual grip logic here if you want, unchanged)
                 return;
             }
 
-            // --- AUTOMATIC SEQUENCE STATE MACHINE ---
+            // ---- HELPERS (AUTO ONLY) ----
+            // Smooth factor: frame-rate independent easing
+            function smoothFactor(speedPerSec) {
+                // clamp dt to avoid jumps if tab was inactive
+                const safeDt = Math.min(dt || 0, 0.05);
+                return 1 - Math.exp(-speedPerSec * safeDt);
+            }
+
+            function nearAngles(b, l, u, tol = 1.0) {
+                return (
+                Math.abs(state.baseAngle - b) < tol &&
+                Math.abs(state.lowerAngle - l) < tol &&
+                Math.abs(state.upperAngle - u) < tol
+                );
+            }
+
+            // ---- TARGET POSES ----
             // Angles: [Base, Lower, Upper]
-            const POS_PICK = [-45, 35, 30]; 
+            const POS_PICK = [-45, 35, 30];
             const POS_LIFT = [-45, -20, -20];
             const POS_TURN = [45, -20, -20];
             const POS_DROP = [45, 35, 30];
 
-            const speed = 0.05; // Movement speed
-            const gripSpeed = 0.05;
+            // Feel tuning (per second)
+            const speed = 3.0;      // arm motion responsiveness
+            const gripSpeed = 6.0;  // gripper responsiveness (usually faster)
 
+            const k = smoothFactor(speed);
+            const g = smoothFactor(gripSpeed);
+
+            // ---- AUTO STATE MACHINE ----
             switch (state.autoStep) {
-                case 0: // Move to Object
-                    ui.status.innerText = "Auto: Approaching Object";
-                    state.baseAngle = lerp(state.baseAngle, POS_PICK[0], speed);
-                    state.lowerAngle = lerp(state.lowerAngle, POS_PICK[1], speed);
-                    state.upperAngle = lerp(state.upperAngle, POS_PICK[2], speed);
-                    state.gripperOpen = lerp(state.gripperOpen, 1.0, gripSpeed); // Ensure open
+                case 0: // Move to Object (Approach)
+                ui.status.innerText = "Auto: Approaching Object";
 
-                    // Check if close
-                    if (Math.abs(state.lowerAngle - POS_PICK[1]) < 0.5) {
-                        state.autoStep = 1; 
-                        state.timer = 0;
-                    }
-                    break;
+                state.baseAngle  = lerp(state.baseAngle,  POS_PICK[0], k);
+                state.lowerAngle = lerp(state.lowerAngle, POS_PICK[1], k);
+                state.upperAngle = lerp(state.upperAngle, POS_PICK[2], k);
+                state.gripperOpen = lerp(state.gripperOpen, 1.0, g); // ensure open
 
-                case 1: // GRIP (Wait for it to close fully)
-                    ui.status.innerText = "Auto: Gripping...";
-                    state.gripperOpen = lerp(state.gripperOpen, 0.0, gripSpeed);
-                    
-                    if (state.gripperOpen < 0.05) {
-                        state.isGripped = true; // PARENTING HAPPENS HERE
-                        state.timer++;
-                        if (state.timer > 30) state.autoStep = 2; // Short pause
+                if (nearAngles(POS_PICK[0], POS_PICK[1], POS_PICK[2])) {
+                    state.autoStep = 1;
+                    state.timer = 0;
+                }
+                break;
+
+                case 1: // Grip (close + small pause)
+                ui.status.innerText = "Auto: Gripping...";
+
+                state.gripperOpen = lerp(state.gripperOpen, 0.0, g);
+
+                if (state.gripperOpen < 0.05) {
+                    state.isGripped = true; // parenting begins (your render uses this)
+                    state.timer++;
+
+                    if (state.timer > 30) {
+                    state.autoStep = 2;
                     }
-                    break;
+                }
+                break;
 
                 case 2: // Lift
-                    ui.status.innerText = "Auto: Lifting";
-                    state.lowerAngle = lerp(state.lowerAngle, POS_LIFT[1], speed);
-                    state.upperAngle = lerp(state.upperAngle, POS_LIFT[2], speed);
-                    
-                    if (Math.abs(state.lowerAngle - POS_LIFT[1]) < 0.5) state.autoStep = 3;
-                    break;
+                ui.status.innerText = "Auto: Lifting";
+
+                // Keep base as-is (-45), lift with lower/upper
+                state.baseAngle  = lerp(state.baseAngle,  POS_LIFT[0], k);
+                state.lowerAngle = lerp(state.lowerAngle, POS_LIFT[1], k);
+                state.upperAngle = lerp(state.upperAngle, POS_LIFT[2], k);
+
+                if (nearAngles(POS_LIFT[0], POS_LIFT[1], POS_LIFT[2])) {
+                    state.autoStep = 3;
+                }
+                break;
 
                 case 3: // Turn to Drop Zone
-                    ui.status.innerText = "Auto: Turning";
-                    state.baseAngle = lerp(state.baseAngle, POS_TURN[0], speed);
-                    if (Math.abs(state.baseAngle - POS_TURN[0]) < 0.5) state.autoStep = 4;
-                    break;
+                ui.status.innerText = "Auto: Turning";
 
-                case 4: // Lower to Drop
-                    ui.status.innerText = "Auto: Lowering";
-                    state.lowerAngle = lerp(state.lowerAngle, POS_DROP[1], speed);
-                    state.upperAngle = lerp(state.upperAngle, POS_DROP[2], speed);
-                    if (Math.abs(state.lowerAngle - POS_DROP[1]) < 0.5) state.autoStep = 5;
-                    break;
+                state.baseAngle  = lerp(state.baseAngle,  POS_TURN[0], k);
+                state.lowerAngle = lerp(state.lowerAngle, POS_TURN[1], k);
+                state.upperAngle = lerp(state.upperAngle, POS_TURN[2], k);
+
+                if (nearAngles(POS_TURN[0], POS_TURN[1], POS_TURN[2])) {
+                    state.autoStep = 4;
+                }
+                break;
+
+                case 4: // Lower to Drop Pose
+                ui.status.innerText = "Auto: Lowering";
+
+                state.baseAngle  = lerp(state.baseAngle,  POS_DROP[0], k);
+                state.lowerAngle = lerp(state.lowerAngle, POS_DROP[1], k);
+                state.upperAngle = lerp(state.upperAngle, POS_DROP[2], k);
+
+                if (nearAngles(POS_DROP[0], POS_DROP[1], POS_DROP[2])) {
+                    state.autoStep = 5;
+                }
+                break;
 
                 case 5: // Release
-                    ui.status.innerText = "Auto: Releasing";
-                    state.gripperOpen = lerp(state.gripperOpen, 1.0, gripSpeed);
-                    if (state.gripperOpen > 0.9) {
-                        state.isGripped = false;
-                        
-                        // *** SAVE DROP POSITION ***
-                        // In this demo, we know the drop zone is roughly symmetric
-                        // But strictly, we update the object's world pos here
-                        state.objPos = [-8, 0.75, 8]; // Example drop location
-                        
-                        state.autoStep = 6;
-                    }
-                    break;
-                
+                ui.status.innerText = "Auto: Releasing";
+
+                state.gripperOpen = lerp(state.gripperOpen, 1.0, g);
+
+                if (state.gripperOpen > 0.90) {
+                    state.isGripped = false;
+
+                    // Keep your existing drop position (simple demo)
+                    state.objPos = [-8, 0.75, 8];
+
+                    state.autoStep = 6;
+                }
+                break;
+
                 case 6: // Return Home / Reset
-                    ui.status.innerText = "Auto: Finished";
-                    state.baseAngle = lerp(state.baseAngle, 0, speed);
-                    state.lowerAngle = lerp(state.lowerAngle, 0, speed);
-                    state.upperAngle = lerp(state.upperAngle, 0, speed);
-                    
-                    if (Math.abs(state.baseAngle) < 1) {
-                        state.isAuto = false;
-                        ui.btn.disabled = false;
-                        ui.status.style.color = "#4CAF50";
-                        ui.status.innerText = "Mode: MANUAL CONTROL";
-                        // Update sliders to match current auto position
-                        ui.base.value = state.baseAngle;
-                        ui.lower.value = state.lowerAngle;
-                        ui.upper.value = state.upperAngle;
-                    }
-                    break;
+                ui.status.innerText = "Auto: Finished";
+
+                state.baseAngle  = lerp(state.baseAngle,  0, k);
+                state.lowerAngle = lerp(state.lowerAngle, 0, k);
+                state.upperAngle = lerp(state.upperAngle, 0, k);
+
+                if (nearAngles(0, 0, 0, 1.2)) {
+                    state.isAuto = false;
+                    ui.btn.disabled = false;
+                    ui.status.style.color = "#4CAF50";
+                    ui.status.innerText = "Mode: MANUAL CONTROL";
+
+                    // Sync sliders to final angles
+                    ui.base.value = state.baseAngle;
+                    ui.lower.value = state.lowerAngle;
+                    ui.upper.value = state.upperAngle;
+                }
+                break;
             }
         }
 
@@ -369,16 +424,37 @@
             // Keyboard
             document.addEventListener('keydown', (e) => {
                 if(state.isAuto) return;
+
                 const step = 2;
+
+                const base = () => parseFloat(ui.base.value);
+                const lower = () => parseFloat(ui.lower.value);
+                const upper = () => parseFloat(ui.upper.value);
+                const grip = () => parseFloat(ui.gripper.value); 
+
                 switch(e.key) {
-                    case 'ArrowLeft': ui.base.value -= step; break;
-                    case 'ArrowRight': parseInt(ui.base.value) += step; ui.base.value = parseInt(ui.base.value) + step; break;
-                    case 'ArrowUp': ui.lower.value -= step; break;
-                    case 'ArrowDown': parseInt(ui.lower.value) += step; ui.lower.value = parseInt(ui.lower.value) + step; break;
-                    case 'w': case 'W': ui.upper.value -= step; break;
-                    case 's': case 'S': parseInt(ui.upper.value) += step; ui.upper.value = parseInt(ui.upper.value) + step; break;
+                    case 'ArrowLeft':
+                        ui.base.value = clamp(base() - step, -180, 180);
+                        break;
+                    case 'ArrowRight':
+                        ui.base.value = clamp(base() + step, -180, 180);
+                        break;
+                    case 'ArrowUp': 
+                        ui.lower.value = clamp(lower() - step, -45, 45); 
+                        break;
+                    case 'ArrowDown':
+                        ui.lower.value = clamp(lower() + step, -45, 45); 
+                        break;
+                    case 'w': 
+                    case 'W': 
+                        ui.upper.value = clamp(upper() - step, -90, 90);
+                        break;    
+                    case 's': 
+                    case 'S': 
+                        ui.upper.value = clamp(upper() + step, -90, 90);
+                        break;
                     case ' ': 
-                        ui.gripper.value = (ui.gripper.value > 50) ? 0 : 100; // Toggle
+                        ui.gripper.value = (grip() > 50) ? 0 : 100; // Toggle
                         break;
                 }
             });

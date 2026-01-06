@@ -5,6 +5,8 @@ var numVertices = 36;
 var points = [];
 var colors = [];
 
+let wristWorldPos =[0, 0, 0];
+
 // Matrix Variables
 var modelViewMatrix, projectionMatrix;
 var modelViewMatrixLoc, projectionMatrixLoc;
@@ -142,6 +144,11 @@ var eye = vec3(0, 20, 60); // Moved Z back to 60, Y up to 20
 
         // 4. GRIPPER ASSEMBLY (Wrist + Fingers)
         modelViewMatrix = mult(modelViewMatrix, translate(0, UPPER_ARM_HEIGHT, 0)); 
+
+        // Extract wrist world position from matrix
+        wristWorldPos[0] = wristMat[12];
+        wristWorldPos[1] = wristMat[13];
+        wristWorldPos[2] = wristMat[14];
 
         // Wrist Block
         stack.push(modelViewMatrix);
