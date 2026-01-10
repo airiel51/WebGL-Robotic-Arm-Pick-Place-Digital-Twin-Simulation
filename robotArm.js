@@ -8,7 +8,14 @@ var numVertices = 36;
 var points = [];
 var normals = []; 
 
-// Matrix Variables
+// --- 1. INCREASED DIMENSIONS (So it can reach the table) ---
+var BASE_HEIGHT      = 2.0;
+var BASE_WIDTH       = 5.0;
+var LOWER_ARM_HEIGHT = 12.0; // Increased from 5.0
+var LOWER_ARM_WIDTH  = 1.0;
+var UPPER_ARM_HEIGHT = 10.0; // Increased from 5.0
+var UPPER_ARM_WIDTH  = 1.0;
+
 var modelViewMatrix, projectionMatrix;
 var modelViewMatrixLoc, projectionMatrixLoc;
 var colorLoc; 
@@ -82,13 +89,13 @@ window.onload = function init() {
     gl.vertexAttribPointer(vNormal, 3, gl.FLOAT, false, 0, 0);
     gl.enableVertexAttribArray(vNormal);
 
-    var vBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, vBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, flatten(points), gl.STATIC_DRAW);
+    var cBuffer = gl.createBuffer();
+    gl.bindBuffer( gl.ARRAY_BUFFER, cBuffer );
+    gl.bufferData( gl.ARRAY_BUFFER, flatten(colors), gl.STATIC_DRAW );
 
-    var vPosition = gl.getAttribLocation(program, "vPosition");
-    gl.vertexAttribPointer(vPosition, 4, gl.FLOAT, false, 0, 0);
-    gl.enableVertexAttribArray(vPosition);
+    var colorLoc = gl.getAttribLocation( program, "vColor" );
+    gl.vertexAttribPointer( colorLoc, 4, gl.FLOAT, false, 0, 0 );
+    gl.enableVertexAttribArray( colorLoc );
 
     modelViewMatrixLoc = gl.getUniformLocation(program, "modelViewMatrix");
     projectionMatrixLoc = gl.getUniformLocation(program, "projectionMatrix");
@@ -138,7 +145,7 @@ function render() {
     
     // BASE
     stack.push(modelViewMatrix);
-        modelViewMatrix = mult(modelViewMatrix, rotate(theta.base, [0, 1, 0]));
+        modelViewMatrix = mult(modelViewMatrix, rotate(theta[0], [0, 1, 0])); // Base Rotate
         
         stack.push(modelViewMatrix);
             modelViewMatrix = mult(modelViewMatrix, translate(0, 1.0, 0));
