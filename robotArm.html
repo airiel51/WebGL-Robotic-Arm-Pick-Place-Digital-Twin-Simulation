@@ -39,6 +39,132 @@
         #btnGripper { background: linear-gradient(135deg, #007bff, #0056b3); width: 100%; }
         #btnGripper:hover { filter: brightness(1.1); }
         
+        .status-bar { grid-column: span 2; text-align: center; font-weight: bold; margin-bottom: 5px; text-shadow: 0 0 10px rgba(0,0,0,0.5); }
+        
+        /* New Style for Coordinate Display */
+        #coordText { color: #ffca28; font-family: 'Consolas', monospace; font-size: 1.1em; letter-spacing: 1px; }
+        #statusText { color: #00bfff; font-size: 1.1em; }
+
+        .instructions { grid-column: span 2; font-size: 0.8em; color: #777; text-align: center; margin-top: 10px; border-top: 1px solid #333; padding-top: 10px;}
+    </style>
+</head>
+<body>
+    <canvas id="gl-canvas" width="900" height="600"></canvas>
+
+    <div id="ui-container">
+        <div class="status-bar" id="coordText">OBJECT: [0.00, 0.00, 0.00]</div>
+        
+        <div class="status-bar" id="statusText">SYSTEM READY: MANUAL CONTROL ACTIVE</div>
+        
+        <div class="control-group">
+            <label>Base Rotation (A / D)</label>
+            <input type="range" id="baseSlider" min="-180" max="180" value="0">
+        </div>
+        <div class="control-group">
+            <label>Lower Arm (W / S)</label>
+            <input type="range" id="lowerSlider" min="-90" max="90" value="0">
+        </div>
+        <div class="control-group">
+            <label>Upper Arm (Q / E)</label>
+            <input type="range" id="upperSlider" min="-130" max="130" value="0">
+        </div>
+        
+        <div class="control-group" style="justify-content: center; border-left-color: #ffc107;">
+            <label>End Effector</label>
+            <button id="btnGripper">Toggle Gripper (Space)</button>
+        </div>
+
+        <div id="button-group">
+            <button id="btnAuto">▶ Start Auto Sequence</button>
+            <button id="btnReset">⏹ Reset System</button>
+        </div>
+
+        <div class="instructions">
+            <strong>Keyboard Controls:</strong> Base (A/D) &nbsp;|&nbsp; Lower Arm (W/S) &nbsp;|&nbsp; Upper Arm (Q/E) &nbsp;|&nbsp; Gripper (Spacebar)
+        </div>
+    </div>
+
+    <script id="vertex-shader" type="x-shader/x-vertex">
+        attribute vec4 vPosition;
+        attribute vec3 vNormal;
+        
+        varying vec3 fNormal;
+        varying vec3 fPosition;
+
+        uniform mat4 modelViewMatrix;
+        uniform mat4 projectionMatrix;
+
+        void main() {
+            fNormal = (modelViewMatrix * vec4(vNormal, 0.0)).xyz;
+            vec4 pos = modelViewMatrix * vPosition;
+            fPosition = pos.xyz;
+            gl_Position = projectionMatrix * pos;
+        }
+    </script>
+
+    <script id="fragment-shader" type="x-shader/x-fragment">
+        precision mediump float;
+        
+        varying vec3 fNormal;
+        varying vec3 fPosition;
+        
+        uniform vec4 uColor;
+
+        void main() {
+            vec3 lightDir = normalize(vec3(0.5, 1.0, 0.8));
+            vec3 normal = normalize(fNormal);
+            float diff = max(dot(normal, lightDir), 0.0);
+            vec3 ambient = vec3(0.3, 0.3, 0.3);
+            vec3 diffuse = vec3(0.7, 0.7, 0.7) * diff;
+            vec3 finalColor = uColor.rgb * (ambient + diffuse);
+            gl_FragColor = vec4(finalColor, uColor.a);
+        }
+    </script>
+</body>
+</html>
+
+
+<!--<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Digital Twin: Industrial Robot Arm</title>
+    
+    <script src="MVnew.js"></script>
+    <script src="initShaders.js"></script>
+    
+    <script src="robotArm.js"></script>
+
+    <style>
+        body { font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: #121212; color: #e0e0e0; display: flex; flex-direction: column; align-items: center; margin: 0; padding: 20px; }
+        canvas { background: #1e1e1e; border: 1px solid #333; box-shadow: 0 10px 40px rgba(0,0,0,0.6); border-radius: 4px; }
+        
+        #ui-container { 
+            background: #252525; padding: 25px; border-radius: 8px; margin-top: 20px; 
+            width: 850px; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; border: 1px solid #333;
+        }
+
+        .control-group { display: flex; flex-direction: column; background: #2f2f2f; padding: 15px; border-radius: 6px; border-left: 4px solid #007bff; }
+        label { font-size: 0.85em; margin-bottom: 8px; color: #bbb; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+        input[type=range] { width: 100%; cursor: pointer; accent-color: #007bff; }
+        
+        /* Buttons */
+        #button-group { grid-column: span 2; display: flex; gap: 15px; justify-content: center; margin-top: 10px; }
+        button { 
+            padding: 12px 28px; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9em; font-weight: 700; text-transform: uppercase; transition: 0.2s; color: white;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+        }
+        button:active { transform: translateY(1px); box-shadow: none; }
+        
+        #btnAuto { background: linear-gradient(135deg, #28a745, #218838); }
+        #btnAuto:hover { filter: brightness(1.1); }
+        
+        #btnReset { background: linear-gradient(135deg, #dc3545, #c82333); }
+        #btnReset:hover { filter: brightness(1.1); }
+
+        #btnGripper { background: linear-gradient(135deg, #007bff, #0056b3); width: 100%; }
+        #btnGripper:hover { filter: brightness(1.1); }
+        
         .status-bar { grid-column: span 2; text-align: center; color: #00bfff; font-weight: bold; margin-bottom: 5px; font-size: 1.1em; text-shadow: 0 0 10px rgba(0,191,255,0.3); }
         .instructions { grid-column: span 2; font-size: 0.8em; color: #777; text-align: center; margin-top: 10px; border-top: 1px solid #333; padding-top: 10px;}
     </style>
@@ -125,3 +251,5 @@
     </script>
 </body>
 </html>
+
+-->
