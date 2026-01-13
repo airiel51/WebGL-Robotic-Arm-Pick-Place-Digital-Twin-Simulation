@@ -81,6 +81,7 @@ window.onload = function init() {
     program = initShaders(gl, "vertex-shader", "fragment-shader");
     gl.useProgram(program);
 
+    // 1. Normals Buffer
     var nBuffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, nBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, flatten(normals), gl.STATIC_DRAW);
@@ -89,16 +90,20 @@ window.onload = function init() {
     gl.vertexAttribPointer(vNormal, 3, gl.FLOAT, false, 0, 0);
     gl.enableVertexAttribArray(vNormal);
 
-    var cBuffer = gl.createBuffer();
-    gl.bindBuffer( gl.ARRAY_BUFFER, cBuffer );
-    gl.bufferData( gl.ARRAY_BUFFER, flatten(colors), gl.STATIC_DRAW );
+    // 2. Points Buffer (Crucial Fix: this was missing)
+    var vBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, flatten(points), gl.STATIC_DRAW);
 
-    var colorLoc = gl.getAttribLocation( program, "vColor" );
-    gl.vertexAttribPointer( colorLoc, 4, gl.FLOAT, false, 0, 0 );
-    gl.enableVertexAttribArray( colorLoc );
+    var vPosition = gl.getAttribLocation(program, "vPosition");
+    gl.vertexAttribPointer(vPosition, 4, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(vPosition);
 
+    // 3. Get Matrix Uniforms
     modelViewMatrixLoc = gl.getUniformLocation(program, "modelViewMatrix");
     projectionMatrixLoc = gl.getUniformLocation(program, "projectionMatrix");
+    
+    // 4. Get Color Uniform (Crucial Fix: Removed 'var' and 'colors' array ref)
     colorLoc = gl.getUniformLocation(program, "uColor"); 
 
     setupUI(); 
@@ -126,15 +131,17 @@ function drawPart(w, h, d, color) {
 // --- 4. RENDER LOOP ---
 function render() {
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    
+    // Setup Projection
     projectionMatrix = perspective(45, canvas.width/canvas.height, 0.1, 1000.0);
     gl.uniformMatrix4fv(projectionMatrixLoc, false, flatten(projectionMatrix));
 
-    // 1. Define Camera
+    // Setup Camera
     var eye = vec3(0, 60, 90); 
     var at = vec3(0, 5, 0);
     var up = vec3(0, 1, 0);
-
-    // 2. Save View Matrix separately (Crucial for the "Fix Cube Position" logic)
+    
+    // Save View Matrix
     var viewMatrix = lookAt(eye, at, up); 
     modelViewMatrix = viewMatrix;         
 
@@ -145,7 +152,8 @@ function render() {
     
     // BASE
     stack.push(modelViewMatrix);
-        modelViewMatrix = mult(modelViewMatrix, rotate(theta[0], [0, 1, 0])); // Base Rotate
+        // --- FIX IS HERE: Change theta[0] to theta.base ---
+        modelViewMatrix = mult(modelViewMatrix, rotate(theta.base, [0, 1, 0])); 
         
         stack.push(modelViewMatrix);
             modelViewMatrix = mult(modelViewMatrix, translate(0, 1.0, 0));
@@ -184,13 +192,11 @@ function render() {
             drawPart(1.5, 15.0, 1.5, COLOR_ARM);
         modelViewMatrix = stack.pop();
 
-        // GRIPPER
+        // GRIPPER (Wrist)
         modelViewMatrix = mult(modelViewMatrix, translate(0, 15.0, 0)); 
 
-        // --- COLLISION LOGIC (Fixed) ---
-        // 1. Get position in Eye Space
+        // --- COLLISION LOGIC ---
         var tipMatEye = mult(modelViewMatrix, translate(0, 2.5, 0)); 
-        // 2. Undo Camera transformation to get World Space
         var invView = inverse(viewMatrix);
         var tipMatWorld = mult(invView, tipMatEye);
         gripTipPos = vec3(tipMatWorld[0][3], tipMatWorld[1][3], tipMatWorld[2][3]); 
@@ -200,7 +206,6 @@ function render() {
            drawPart(1.6, 0.6, 1.6, COLOR_GRIP); 
         modelViewMatrix = stack.pop();
         
-        // --- THIS VARIABLE WAS MISSING ---
         var fingerOffset = 0.3 + (theta.gripper * 0.4); 
 
         // Fingers 
