@@ -287,145 +287,117 @@ function toggleGripper() {
     }
 }
 
-// --- 5. LOGIC: PRECISE AUTO SEQUENCE ---
-
 function updateAutoSequence() {
-    var armSpeed = 0.04;  // Slower for smoother animation
-    var gripSpeed = 0.05;
+    var armSpeed = 0.05;  
+    var gripSpeed = 0.08;
     
-    // Decrement timer if waiting
     if (waitTimer > 0) {
         waitTimer--;
         return;
     }
 
+    var targetX = objectPos[0];
+    var targetY = objectPos[1] + WRIST_OFFSET; 
+    var targetZ = objectPos[2];
     var sol; 
-    // Coordinates for the yellow object
-    var pickupX = objectPos[0];
-    var pickupY = objectPos[1];
-    var pickupZ = objectPos[2];
-
-    // Coordinates for the drop zone
-    var dropX = dropTarget[0];
-    var dropY = dropTarget[1];
-    var dropZ = dropTarget[2];
 
     switch(animState) {
-    // --- STEP 1: APPROACH (Hover Above Object) ---
+    // --- STEP 1: APPROACH (Hover Near) ---
     case 1: 
-        // Hover 6 units above the object to avoid collision
-        sol = solveIK(pickupX, pickupY + WRIST_OFFSET + 6.0, pickupZ);
+        // We use objectPos to find the yellow cube [15.0, 0.75, 0.0]
+        // WRIST_OFFSET accounts for gripper length
+        // + 4.0 keeps it slightly above the object (like your picture)
+        sol = solveIK(objectPos[0], objectPos[1] + WRIST_OFFSET + 4.0, objectPos[2]);
         setTarget(sol);
-        targetTheta.gripper = 1.0; // Ensure gripper is open
         
+        targetTheta.gripper = 1.0; // Open gripper
+        
+        // When we arrive "near" the object, wait briefly then go to Step 2
         if(checkArrived()) { 
             animState = 2; 
-            waitTimer = 10; 
+            waitTimer = 15; 
         }
         break;
 
     // --- STEP 2: SETTLE (Move Down to Grip) ---
     case 2: 
-        // Move wrist to exact height offset. 
-        // WRIST_OFFSET aligns the Gripper Center with the Object Center.
-        sol = solveIK(pickupX, pickupY + WRIST_OFFSET, pickupZ);
+        // Now we remove the extra +4.0 so the gripper surrounds the object
+        // The Tips will land exactly at objectPos[1] (0.75)
+        sol = solveIK(objectPos[0], objectPos[1] + WRIST_OFFSET, objectPos[2]);
         setTarget(sol);
         
         if(checkArrived()) { 
             animState = 3; 
-            waitTimer = 20; // Pause before gripping
-        }
-        break;
-
-    // --- STEP 3: GRIP (Close Fingers) ---
-    case 3: 
-        targetTheta.gripper = 0.5; // Close to 0.5 (halfway) for the cube
-        
-        // Visual check: has gripper finished closing?
-        if(Math.abs(theta.gripper - 0.5) < 0.05) {
-            isHeld = true; // Attach object
-            setStatus("GRIPPED");
-            animState = 4;
-            waitTimer = 20; 
-        }
-        break;
-
-    // --- STEP 4: LIFT (Move Up with Object) ---
-    case 4: 
-        // Lift straight up to height +12
-        sol = solveIK(pickupX, pickupY + WRIST_OFFSET + 12.0, pickupZ); 
-        setTarget(sol);
-        
-        if(checkArrived()) { 
-            animState = 5; 
-            waitTimer = 10; 
-        }
-        break;
-
-    // --- STEP 5: TRAVERSE (Move to Drop Zone Airspace) ---
-    case 5: 
-        // Stay high (+12) while moving to drop coordinates
-        sol = solveIK(dropX, dropY + WRIST_OFFSET + 12.0, dropZ);
-        setTarget(sol);
-        
-        if(checkArrived()) { 
-            animState = 6; 
-            waitTimer = 10; 
-        }
-        break;
-        
-    // --- STEP 6: LOWER (Move Down to Floor) ---
-    case 6: 
-        sol = solveIK(dropX, dropY + WRIST_OFFSET, dropZ);
-        setTarget(sol);
-        
-        if(checkArrived()) { 
-            animState = 7; 
             waitTimer = 30; 
         }
         break;
+       // --- STEP 3: GRIP ---
+       case 3: 
+           targetTheta.gripper = 0.6; 
+           if(Math.abs(theta.gripper - 0.6) < 0.05) {
+               isHeld = true; 
+               animState = 4;
+               setStatus("GRIPPED");
+               waitTimer = 20; 
+               // Ensure drop target also respects floor level + offset later
+               dropTarget = vec3(0.0, FLOOR_LEVEL, -12.0);
+           }
+           break;
 
-    // --- STEP 7: RELEASE (Open Fingers) ---
-    case 7: 
-        targetTheta.gripper = 1.0; // Open fully
-        
-        // Wait until visually open
-        if(theta.gripper >= 0.9) {
-            isHeld = false; 
-            // Update object position to where it was dropped
-            objectPos = vec3(gripTipPos[0], FLOOR_LEVEL, gripTipPos[2]);
-            setStatus("DROPPED");
-            animState = 8; 
-            waitTimer = 20;
-        }
-        break;
+        // --- STEP 4: LIFT ---
+        case 4: 
+            sol = solveIK(targetX, targetY + 12.0, targetZ); 
+            setTarget(sol);
+            if(checkArrived()) { animState = 5; waitTimer = 5; }
+            break;
 
-    // --- STEP 8: HOME (Return to Start) ---
-    case 8: 
-        // Lift up before resetting rotation
-        sol = solveIK(dropX, dropY + WRIST_OFFSET + 8.0, dropZ);
-        setTarget(sol);
+        // --- STEP 5: TRAVERSE ---
+        case 5: 
+            sol = solveIK(dropTarget[0], dropTarget[1] + WRIST_OFFSET + 12.0, dropTarget[2]);
+            setTarget(sol);
+            if(checkArrived()) { animState = 6; waitTimer = 10; }
+            break;
         
-        if(checkArrived()) {
-             targetTheta.base = 0;
-             targetTheta.lower = 0;
-             targetTheta.upper = 0;
-             
-             // Wait for arm to fully unfold before stopping
-             if(Math.abs(theta.base) < 1.0 && Math.abs(theta.lower) < 1.0) {
+        // --- STEP 6: LOWER ---
+        case 6: 
+            sol = solveIK(dropTarget[0], dropTarget[1] + WRIST_OFFSET, dropTarget[2]);
+            setTarget(sol);
+            if(checkArrived()) { 
+                animState = 7; 
+                waitTimer = 30; 
+            }
+            break;
+
+        // --- STEP 7: RELEASE ---
+        case 7: 
+            targetTheta.gripper = 1.0; 
+            if(theta.gripper >= 0.9) {
+                isHeld = false; 
+                objectPos = vec3(gripTipPos[0], FLOOR_LEVEL, gripTipPos[2]);
+                animState = 8; 
+                setStatus("DROPPED");
+                waitTimer = 20;
+            }
+            break;
+
+        // --- STEP 8: HOME ---
+        case 8: 
+            sol = solveIK(dropTarget[0], dropTarget[1] + WRIST_OFFSET + 8.0, dropTarget[2]);
+            setTarget(sol);
+            if(checkArrived()) {
+                 targetTheta.base = 0;
+                 targetTheta.lower = 0;
+                 targetTheta.upper = 0;
                  animating = false;
                  setStatus("READY");
-             }
-        }
-        break;
+            }
+            break;
     }
 
-    // Apply smooth movement
     theta.base = smoothMove(theta.base, targetTheta.base, armSpeed);
     theta.lower = smoothMove(theta.lower, targetTheta.lower, armSpeed);
     theta.upper = smoothMove(theta.upper, targetTheta.upper, armSpeed);
     theta.gripper = smoothMove(theta.gripper, targetTheta.gripper, gripSpeed);
-    
     syncSliders();
 }
 
