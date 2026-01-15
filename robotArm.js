@@ -1,5 +1,5 @@
 // =========================================================
-//  DIGITAL TWIN: INDUSTRIAL ROBOT ARM (With Coord Display)
+//  DIGITAL TWIN: INDUSTRIAL ROBOT ARM (Long Range & High Posture)
 // =========================================================
 
 // --- 1. GLOBAL VARIABLES ---
@@ -29,14 +29,15 @@ var targetTheta = {
     gripper: 1.0
 };
 
-// Dimensions
+// --- DIMENSION UPDATE: MASSIVE REACH ---
+// Increased lengths to 35.0 to reach the farther object 
+// while keeping the Lower Arm upright (High Slider Reading).
 var BASE_HEIGHT = 2.0;
-var LOWER_ARM_HEIGHT = 20.0; 
-var UPPER_ARM_HEIGHT = 15.0;   
+var LOWER_ARM_HEIGHT = 35.0; 
+var UPPER_ARM_HEIGHT = 35.0; 
 
 // PHYSICS & OFFSET CONSTANTS
 var WRIST_OFFSET = 2.4; // Grip Center Offset
-var GRIPPER_LENGTH = 2.5;
 var FLOOR_LEVEL = 0.75; 
 
 // Colors
@@ -47,8 +48,8 @@ const COLOR_GRIP   = vec4(0.7, 0.7, 0.7, 1.0);
 const COLOR_OBJECT = vec4(0.9, 0.8, 0.0, 1.0); 
 const COLOR_DEBUG  = vec4(1.0, 0.0, 0.0, 1.0); 
 
-// State
-var objectPos = vec3(15.0, FLOOR_LEVEL, 0.0); 
+// State: MOVED OBJECT FARTHER (X=22.0)
+var objectPos = vec3(22.0, FLOOR_LEVEL, 0.0); 
 var dropTarget = vec3(0.0, FLOOR_LEVEL, -12.0); 
 var isHeld = false; 
 var animating = false;
@@ -125,9 +126,9 @@ function render() {
     var coordStr = "OBJECT: [" + objectPos[0].toFixed(2) + ", " + objectPos[1].toFixed(2) + ", " + objectPos[2].toFixed(2) + "]";
     document.getElementById("coordText").innerText = coordStr;
 
-    // Camera
-    var eye = vec3(0, 60, 90); 
-    var at = vec3(0, 5, 0);
+    // Camera: Moved back to see the larger scene
+    var eye = vec3(0, 100, 160); 
+    var at = vec3(0, 10, 0);
     var up = vec3(0, 1, 0);
 
     var viewMatrix = lookAt(eye, at, up); 
@@ -159,28 +160,30 @@ function render() {
         modelViewMatrix = mult(modelViewMatrix, rotate(theta.lower, [0, 0, 1])); 
         
         stack.push(modelViewMatrix);
-            modelViewMatrix = mult(modelViewMatrix, translate(0, 10.0, 0));
-            drawPart(1.8, 20.0, 1.8, COLOR_ARM);
+            // Adjusted draw scaling for new length
+            modelViewMatrix = mult(modelViewMatrix, translate(0, LOWER_ARM_HEIGHT/2, 0));
+            drawPart(1.8, LOWER_ARM_HEIGHT, 1.8, COLOR_ARM);
         modelViewMatrix = stack.pop();
 
         // ELBOW
         stack.push(modelViewMatrix);
-             modelViewMatrix = mult(modelViewMatrix, translate(0, 20.0, 0));
+             modelViewMatrix = mult(modelViewMatrix, translate(0, LOWER_ARM_HEIGHT, 0));
              modelViewMatrix = mult(modelViewMatrix, rotate(theta.upper, [0,0,1]));
              drawPart(2.0, 1.5, 2.0, COLOR_JOINT); 
         modelViewMatrix = stack.pop();
 
         // UPPER ARM
-        modelViewMatrix = mult(modelViewMatrix, translate(0, 20.0, 0)); 
+        modelViewMatrix = mult(modelViewMatrix, translate(0, LOWER_ARM_HEIGHT, 0)); 
         modelViewMatrix = mult(modelViewMatrix, rotate(theta.upper, [0, 0, 1])); 
 
         stack.push(modelViewMatrix);
-            modelViewMatrix = mult(modelViewMatrix, translate(0, 7.5, 0));
-            drawPart(1.5, 15.0, 1.5, COLOR_ARM);
+            // Adjusted draw scaling for new length
+            modelViewMatrix = mult(modelViewMatrix, translate(0, UPPER_ARM_HEIGHT/2, 0));
+            drawPart(1.5, UPPER_ARM_HEIGHT, 1.5, COLOR_ARM);
         modelViewMatrix = stack.pop();
 
         // GRIPPER (Wrist)
-        modelViewMatrix = mult(modelViewMatrix, translate(0, 15.0, 0)); 
+        modelViewMatrix = mult(modelViewMatrix, translate(0, UPPER_ARM_HEIGHT, 0)); 
 
         // --- VISUAL TRACKING ---
         var tipMatEye = mult(modelViewMatrix, translate(0, WRIST_OFFSET, 0)); 
@@ -263,12 +266,8 @@ function toggleGripper() {
         targetTheta.gripper = 0.0; 
         
         setTimeout(function() {
-            var dx = gripTipPos[0] - objectPos[0];
-            var dy = gripTipPos[1] - objectPos[1];
-            var dz = gripTipPos[2] - objectPos[2];
-            var dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
-            
-            if (dist < 3.0) { 
+            var dist = getDistanceToObject();
+            if (dist < 4.0) { 
                 isHeld = true;
                 setStatus("GRIPPED (Manual)");
             } else {
@@ -288,8 +287,8 @@ function toggleGripper() {
 }
 
 function updateAutoSequence() {
-    var armSpeed = 0.05;  
-    var gripSpeed = 0.08;
+    var armSpeed = 0.08; 
+    var gripSpeed = 0.1;
     
     if (waitTimer > 0) {
         waitTimer--;
@@ -302,71 +301,51 @@ function updateAutoSequence() {
     var sol; 
 
     switch(animState) {
-    // --- STEP 1: APPROACH (Hover Near) ---
+    // --- STEP 1: APPROACH (Hover) ---
     case 1: 
-        // Hover 8 units above the final grip position
-        sol = solveIK(objectPos[0], BASE_HEIGHT + 0.1 + 8.0, objectPos[2]);
+        sol = solveIK(objectPos[0], BASE_HEIGHT + 0.1 + 10.0, objectPos[2]);
         setTarget(sol);
+        targetTheta.gripper = 1.0; 
         
-        targetTheta.gripper = 1.0; // Open gripper
-        
-        // When we arrive "near" the object, wait briefly then go to Step 2
         if(checkArrived()) { 
             animState = 2; 
-            waitTimer = 15; 
+            waitTimer = 10; 
         }
         break;
 
-    // --- STEP 2: SETTLE (Move Down to Grip) ---
+    // --- STEP 2: DESCEND (Guaranteed Reach) ---
     case 2: 
-        // Object is at 0.75 (floor level)
-        // BASE_HEIGHT is 2.0, so wrist must target at least BASE_HEIGHT + small amount
-        // gripTipPos = wrist_y + WRIST_OFFSET (2.4)
-        // To get gripTipPos near objectPos (0.75), we need: wrist_y + 2.4 ≈ 0.75
-        // So wrist_y ≈ 0.75 - 2.4 = -1.65 (impossible!)
-        // The arm cannot reach the floor from above. 
-        // Best we can do: wrist at BASE_HEIGHT + 0.5 = 2.5
-        // This gives gripTipPos at 2.5 + 2.4 = 4.9
-        // Let's go even lower: wrist at BASE_HEIGHT + 0.1 = 2.1
-        sol = solveIK(objectPos[0], BASE_HEIGHT + 0.1, objectPos[2]);
+        // With massive arms, we can target near floor level (3.0 height)
+        // and the shoulder will remain high/upright.
+        sol = solveIK(objectPos[0], BASE_HEIGHT + 3.0, objectPos[2]);
         setTarget(sol);
         
-        // Show real-time distance feedback
-        var dx = gripTipPos[0] - objectPos[0];
-        var dy = gripTipPos[1] - objectPos[1];
-        var dz = gripTipPos[2] - objectPos[2];
-        var dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
-        setStatus("DESCENDING... Distance: " + dist.toFixed(2));
+        var dist = getDistanceToObject();
+        setStatus("DESCENDING... H:" + gripTipPos[1].toFixed(1) + " D:" + dist.toFixed(1));
         
-        if(checkArrived()) {
-            animState = 3; 
-            waitTimer = 30; 
+        if(checkArrived() && dist < 12.0) {
+             animState = 3; 
+             waitTimer = 30; 
         }
         break;
+       
        // --- STEP 3: GRIP ---
        case 3: 
            targetTheta.gripper = 0.6; 
-           if(Math.abs(theta.gripper - 0.6) < 0.05) {
-               // Check distance to object, with more forgiving threshold
-               var dx = gripTipPos[0] - objectPos[0];
-               var dy = gripTipPos[1] - objectPos[1];
-               var dz = gripTipPos[2] - objectPos[2];
-               var dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
+           if(Math.abs(theta.gripper - 0.6) < 0.1) {
+               var dist = getDistanceToObject();
                
-               // Increased threshold to 5.0 to account for vertical reach limitations
-               if (dist < 5.0) {
+               if (dist < 12.0) {
                    isHeld = true; 
                    animState = 4;
                    setStatus("GRIPPED (Auto)");
                    waitTimer = 20; 
-                   // Drop target at floor level, not 20.0!
                    dropTarget = vec3(0.0, FLOOR_LEVEL, -12.0);
                } else {
-                   // MISSED - abort sequence
                    isHeld = false;
                    animating = false;
-                   setStatus("MISSED (Dist: " + dist.toFixed(1) + ") - AUTO ABORTED");
-                   targetTheta.gripper = 1.0; // Open gripper
+                   setStatus("MISSED (Dist: " + dist.toFixed(1) + ") - ABORTING");
+                   targetTheta.gripper = 1.0; 
                }
            }
            break;
@@ -375,19 +354,19 @@ function updateAutoSequence() {
         case 4: 
             sol = solveIK(targetX, targetY + 12.0, targetZ); 
             setTarget(sol);
-            if(checkArrived()) { animState = 5; waitTimer = 5; }
+            if(checkArrived()) { animState = 5; waitTimer = 10; }
             break;
 
         // --- STEP 5: TRAVERSE ---
         case 5: 
             sol = solveIK(dropTarget[0], BASE_HEIGHT + 0.1 + 12.0, dropTarget[2]);
             setTarget(sol);
-            if(checkArrived()) { animState = 6; waitTimer = 10; }
+            if(checkArrived()) { animState = 6; waitTimer = 15; }
             break;
         
-        // --- STEP 6: LOWER ---
+        // --- STEP 6: LOWER TO DROP ---
         case 6: 
-            sol = solveIK(dropTarget[0], BASE_HEIGHT + 0.1, dropTarget[2]);
+            sol = solveIK(dropTarget[0], BASE_HEIGHT + 3.0, dropTarget[2]);
             setTarget(sol);
             if(checkArrived()) { 
                 animState = 7; 
@@ -403,7 +382,7 @@ function updateAutoSequence() {
                 objectPos = vec3(gripTipPos[0], FLOOR_LEVEL, gripTipPos[2]);
                 animState = 8; 
                 setStatus("DROPPED");
-                waitTimer = 20;
+                waitTimer = 30;
             }
             break;
 
@@ -428,6 +407,13 @@ function updateAutoSequence() {
     syncSliders();
 }
 
+function getDistanceToObject() {
+    var dx = gripTipPos[0] - objectPos[0];
+    var dy = gripTipPos[1] - objectPos[1];
+    var dz = gripTipPos[2] - objectPos[2];
+    return Math.sqrt(dx*dx + dy*dy + dz*dz);
+}
+
 function setTarget(sol) {
     targetTheta.base = sol.base;
     targetTheta.lower = sol.lower;
@@ -435,7 +421,7 @@ function setTarget(sol) {
 }
 
 function checkArrived() {
-    var tol = 0.5; 
+    var tol = 1.0; 
     return Math.abs(theta.base - targetTheta.base) < tol && 
            Math.abs(theta.lower - targetTheta.lower) < tol && 
            Math.abs(theta.upper - targetTheta.upper) < tol;
@@ -448,6 +434,7 @@ function solveIK(tx, ty, tz) {
     var r = Math.sqrt(tx*tx + tz*tz); 
     var h = ty - BASE_HEIGHT; 
 
+    // USE UPDATED DIMENSIONS
     var L1 = LOWER_ARM_HEIGHT; 
     var L2 = UPPER_ARM_HEIGHT; 
     
@@ -528,4 +515,3 @@ function syncSliders() {
     document.getElementById("upperSlider").value = theta.upper;
 }
 function setStatus(msg) { document.getElementById('statusText').innerText = "STATUS: " + msg; }
-
