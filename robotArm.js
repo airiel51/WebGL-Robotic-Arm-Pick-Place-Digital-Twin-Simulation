@@ -2,7 +2,7 @@
 //  DIGITAL TWIN: INDUSTRIAL ROBOT ARM (Long Range & High Posture)
 // =========================================================
 
-// --- 1. GLOBAL VARIABLES ---
+// 1. GLOBAL VARIABLES
 var canvas, gl, program;
 var numVertices = 36; 
 var points = [];
@@ -29,9 +29,7 @@ var targetTheta = {
     gripper: 1.0
 };
 
-// --- DIMENSION UPDATE: MASSIVE REACH ---
-// Increased lengths to 35.0 to reach the farther object 
-// while keeping the Lower Arm upright (High Slider Reading).
+// DIMENSION UPDATE: MASSIVE REACH
 var BASE_HEIGHT = 2.0;
 var LOWER_ARM_HEIGHT = 35.0; 
 var UPPER_ARM_HEIGHT = 35.0; 
@@ -59,7 +57,7 @@ var waitTimer = 0;
 // Collision Tracker
 var gripTipPos = vec3(0, 0, 0); 
 
-// --- 2. INITIALIZATION ---
+// 2. INITIALIZATION
 window.onload = function init() {
     canvas = document.getElementById("gl-canvas");
     gl = canvas.getContext('webgl');
@@ -99,7 +97,7 @@ window.onload = function init() {
     render();  
 }
 
-// --- 3. HELPER FUNCTIONS ---
+// 3. HELPER FUNCTIONS
 function scale4(a, b, c) {
     var result = mat4();
     result[0][0] = a;
@@ -116,13 +114,13 @@ function drawPart(w, h, d, color) {
     gl.drawArrays(gl.TRIANGLES, 0, numVertices);
 }
 
-// --- 4. RENDER LOOP ---
+// 4. RENDER LOOP
 function render() {
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     projectionMatrix = perspective(45, canvas.width/canvas.height, 0.1, 1000.0);
     gl.uniformMatrix4fv(projectionMatrixLoc, false, flatten(projectionMatrix));
 
-    // *** UI UPDATE: DISPLAY COORDINATES ***
+    // UI UPDATE: DISPLAY COORDINATES
     var coordStr = "OBJECT: [" + objectPos[0].toFixed(2) + ", " + objectPos[1].toFixed(2) + ", " + objectPos[2].toFixed(2) + "]";
     document.getElementById("coordText").innerText = coordStr;
 
@@ -137,7 +135,7 @@ function render() {
     if(animating) updateAutoSequence();
     else smoothManualControl();
 
-    // === HIERARCHY ===
+    // HIERARCHY
     
     // BASE
     stack.push(modelViewMatrix);
@@ -185,7 +183,7 @@ function render() {
         // GRIPPER (Wrist)
         modelViewMatrix = mult(modelViewMatrix, translate(0, UPPER_ARM_HEIGHT, 0)); 
 
-        // --- VISUAL TRACKING ---
+        // VISUAL TRACKING
         var tipMatEye = mult(modelViewMatrix, translate(0, WRIST_OFFSET, 0)); 
         var invView = inverse(viewMatrix);
         var tipMatWorld = mult(invView, tipMatEye);
@@ -242,7 +240,7 @@ function render() {
     requestAnimationFrame(render);
 }
 
-// --- 5. LOGIC: PRECISE AUTO SEQUENCE ---
+// 5. LOGIC: PRECISE AUTO SEQUENCE
 
 function smoothMove(current, target, speed) {
     var diff = target - current;
@@ -301,7 +299,7 @@ function updateAutoSequence() {
     var sol; 
 
     switch(animState) {
-    // --- STEP 1: APPROACH (Hover) ---
+    // STEP 1: APPROACH (Hover)
     case 1: 
         sol = solveIK(objectPos[0], BASE_HEIGHT + 0.1 + 10.0, objectPos[2]);
         setTarget(sol);
@@ -313,10 +311,8 @@ function updateAutoSequence() {
         }
         break;
 
-    // --- STEP 2: DESCEND (Guaranteed Reach) ---
+    // STEP 2: DESCEND (Guaranteed Reach)
     case 2: 
-        // With massive arms, we can target near floor level (3.0 height)
-        // and the shoulder will remain high/upright.
         sol = solveIK(objectPos[0], BASE_HEIGHT + 3.0, objectPos[2]);
         setTarget(sol);
         
@@ -329,7 +325,7 @@ function updateAutoSequence() {
         }
         break;
        
-       // --- STEP 3: GRIP ---
+       // STEP 3: GRIP
        case 3: 
            targetTheta.gripper = 0.6; 
            if(Math.abs(theta.gripper - 0.6) < 0.1) {
@@ -350,21 +346,21 @@ function updateAutoSequence() {
            }
            break;
 
-        // --- STEP 4: LIFT ---
+        // STEP 4: LIFT
         case 4: 
             sol = solveIK(targetX, targetY + 12.0, targetZ); 
             setTarget(sol);
             if(checkArrived()) { animState = 5; waitTimer = 10; }
             break;
 
-        // --- STEP 5: TRAVERSE ---
+        // STEP 5: TRAVERSE
         case 5: 
             sol = solveIK(dropTarget[0], BASE_HEIGHT + 0.1 + 12.0, dropTarget[2]);
             setTarget(sol);
             if(checkArrived()) { animState = 6; waitTimer = 15; }
             break;
         
-        // --- STEP 6: LOWER TO DROP ---
+        // STEP 6: LOWER TO DROP
         case 6: 
             sol = solveIK(dropTarget[0], BASE_HEIGHT + 3.0, dropTarget[2]);
             setTarget(sol);
@@ -374,7 +370,7 @@ function updateAutoSequence() {
             }
             break;
 
-        // --- STEP 7: RELEASE ---
+        // STEP 7: RELEASE
         case 7: 
             targetTheta.gripper = 1.0; 
             if(theta.gripper >= 0.9) {
@@ -386,7 +382,7 @@ function updateAutoSequence() {
             }
             break;
 
-        // --- STEP 8: HOME ---
+        // STEP 8: HOME
         case 8: 
             sol = solveIK(dropTarget[0], BASE_HEIGHT + 0.1 + 8.0, dropTarget[2]);
             setTarget(sol);
@@ -457,7 +453,7 @@ function solveIK(tx, ty, tz) {
     return { base: baseDeg, lower: -finalLower, upper: -finalUpper };
 }
 
-// --- UTILITIES ---
+// UTILITIES
 function buildCube() {
     quad(1, 0, 3, 2, vec3(0, 0, 1)); 
     quad(2, 3, 7, 6, vec3(1, 0, 0)); 
