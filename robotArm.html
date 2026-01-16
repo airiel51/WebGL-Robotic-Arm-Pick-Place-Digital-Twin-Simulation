@@ -39,7 +39,12 @@
         #btnGripper { background: linear-gradient(135deg, #007bff, #0056b3); width: 100%; }
         #btnGripper:hover { filter: brightness(1.1); }
         
-        .status-bar { grid-column: span 2; text-align: center; color: #00bfff; font-weight: bold; margin-bottom: 5px; font-size: 1.1em; text-shadow: 0 0 10px rgba(0,191,255,0.3); }
+        .status-bar { grid-column: span 2; text-align: center; font-weight: bold; margin-bottom: 5px; text-shadow: 0 0 10px rgba(0,0,0,0.5); }
+        
+        /* New Style for Coordinate Display */
+        #coordText { color: #ffca28; font-family: 'Consolas', monospace; font-size: 1.1em; letter-spacing: 1px; }
+        #statusText { color: #00bfff; font-size: 1.1em; }
+
         .instructions { grid-column: span 2; font-size: 0.8em; color: #777; text-align: center; margin-top: 10px; border-top: 1px solid #333; padding-top: 10px;}
     </style>
 </head>
@@ -47,6 +52,8 @@
     <canvas id="gl-canvas" width="900" height="600"></canvas>
 
     <div id="ui-container">
+        <div class="status-bar" id="coordText">OBJECT: [0.00, 0.00, 0.00]</div>
+        
         <div class="status-bar" id="statusText">SYSTEM READY: MANUAL CONTROL ACTIVE</div>
         
         <div class="control-group">
@@ -59,7 +66,7 @@
         </div>
         <div class="control-group">
             <label>Upper Arm (Q / E)</label>
-            <input type="range" id="upperSlider" min="-130" max="130" value="0">
+            <input type="range" id="upperSlider" min="-130" max="150" value="0">
         </div>
         
         <div class="control-group" style="justify-content: center; border-left-color: #ffc107;">
@@ -88,12 +95,9 @@
         uniform mat4 projectionMatrix;
 
         void main() {
-            // Transform normal to view space (simplified)
             fNormal = (modelViewMatrix * vec4(vNormal, 0.0)).xyz;
-            
             vec4 pos = modelViewMatrix * vPosition;
             fPosition = pos.xyz;
-            
             gl_Position = projectionMatrix * pos;
         }
     </script>
@@ -104,22 +108,15 @@
         varying vec3 fNormal;
         varying vec3 fPosition;
         
-        uniform vec4 uColor; // Color passed from JS
+        uniform vec4 uColor;
 
         void main() {
-            // Simple Directional Light
             vec3 lightDir = normalize(vec3(0.5, 1.0, 0.8));
             vec3 normal = normalize(fNormal);
-            
-            // Diffuse Lighting
             float diff = max(dot(normal, lightDir), 0.0);
-            
-            // Ambient Lighting
             vec3 ambient = vec3(0.3, 0.3, 0.3);
             vec3 diffuse = vec3(0.7, 0.7, 0.7) * diff;
-            
             vec3 finalColor = uColor.rgb * (ambient + diffuse);
-            
             gl_FragColor = vec4(finalColor, uColor.a);
         }
     </script>

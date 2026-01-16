@@ -1,20 +1,12 @@
 // =========================================================
-//  DIGITAL TWIN: INDUSTRIAL ROBOT ARM (Realistic Movement)
+//  DIGITAL TWIN: INDUSTRIAL ROBOT ARM (Long Range & High Posture)
 // =========================================================
 
-// --- 1. GLOBAL VARIABLES ---
+// 1. GLOBAL VARIABLES
 var canvas, gl, program;
 var numVertices = 36; 
 var points = [];
 var normals = []; 
-
-// --- 1. INCREASED DIMENSIONS (So it can reach the table) ---
-var BASE_HEIGHT      = 2.0;
-var BASE_WIDTH       = 5.0;
-var LOWER_ARM_HEIGHT = 12.0; // Increased from 5.0
-var LOWER_ARM_WIDTH  = 1.0;
-var UPPER_ARM_HEIGHT = 10.0; // Increased from 5.0
-var UPPER_ARM_WIDTH  = 1.0;
 
 var modelViewMatrix, projectionMatrix;
 var modelViewMatrixLoc, projectionMatrixLoc;
@@ -29,7 +21,7 @@ var theta = {
     gripper: 1.0 
 };
 
-// Target State (For smooth animation)
+// Target State
 var targetTheta = {
     base: 0,
     lower: 0,
@@ -37,36 +29,35 @@ var targetTheta = {
     gripper: 1.0
 };
 
-// Dimensions (Large Industrial Scale)
+// DIMENSION UPDATE: MASSIVE REACH
 var BASE_HEIGHT = 2.0;
-var LOWER_ARM_HEIGHT = 20.0; 
-var UPPER_ARM_HEIGHT = 15.0;   
+var LOWER_ARM_HEIGHT = 35.0; 
+var UPPER_ARM_HEIGHT = 35.0; 
 
 // PHYSICS & OFFSET CONSTANTS
-var WRIST_OFFSET = 3.2; 
-var HOLD_OFFSET = 2.2;  
+var WRIST_OFFSET = 2.4; // Grip Center Offset
 var FLOOR_LEVEL = 0.75; 
 
 // Colors
 const COLOR_BASE   = vec4(0.2, 0.2, 0.2, 1.0); 
-const COLOR_ARM    = vec4(1.0, 0.5, 0.0, 1.0); // Industrial Orange
+const COLOR_ARM    = vec4(1.0, 0.5, 0.0, 1.0); 
 const COLOR_JOINT  = vec4(0.1, 0.1, 0.1, 1.0); 
 const COLOR_GRIP   = vec4(0.7, 0.7, 0.7, 1.0); 
 const COLOR_OBJECT = vec4(0.9, 0.8, 0.0, 1.0); 
 const COLOR_DEBUG  = vec4(1.0, 0.0, 0.0, 1.0); 
 
-// State
-var objectPos = vec3(15.0, FLOOR_LEVEL, 0.0); 
-var dropTarget = vec3(0.0, FLOOR_LEVEL, 15.0); 
+// State: MOVED OBJECT FARTHER (X=22.0)
+var objectPos = vec3(22.0, FLOOR_LEVEL, 0.0); 
+var dropTarget = vec3(0.0, FLOOR_LEVEL, -12.0); 
 var isHeld = false; 
 var animating = false;
 var animState = 0; 
-var waitTimer = 0; // Delay timer for realism
+var waitTimer = 0; 
 
 // Collision Tracker
 var gripTipPos = vec3(0, 0, 0); 
 
-// --- 2. INITIALIZATION ---
+// 2. INITIALIZATION
 window.onload = function init() {
     canvas = document.getElementById("gl-canvas");
     gl = canvas.getContext('webgl');
@@ -89,13 +80,13 @@ window.onload = function init() {
     gl.vertexAttribPointer(vNormal, 3, gl.FLOAT, false, 0, 0);
     gl.enableVertexAttribArray(vNormal);
 
-    var cBuffer = gl.createBuffer();
-    gl.bindBuffer( gl.ARRAY_BUFFER, cBuffer );
-    gl.bufferData( gl.ARRAY_BUFFER, flatten(colors), gl.STATIC_DRAW );
-
-    var colorLoc = gl.getAttribLocation( program, "vColor" );
-    gl.vertexAttribPointer( colorLoc, 4, gl.FLOAT, false, 0, 0 );
-    gl.enableVertexAttribArray( colorLoc );
+    var pBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, pBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, flatten(points), gl.STATIC_DRAW);
+    
+    var vPosition = gl.getAttribLocation(program, "vPosition");
+    gl.vertexAttribPointer(vPosition, 4, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(vPosition);
 
     modelViewMatrixLoc = gl.getUniformLocation(program, "modelViewMatrix");
     projectionMatrixLoc = gl.getUniformLocation(program, "projectionMatrix");
@@ -106,7 +97,7 @@ window.onload = function init() {
     render();  
 }
 
-// --- 3. HELPER FUNCTIONS ---
+// 3. HELPER FUNCTIONS
 function scale4(a, b, c) {
     var result = mat4();
     result[0][0] = a;
@@ -123,29 +114,32 @@ function drawPart(w, h, d, color) {
     gl.drawArrays(gl.TRIANGLES, 0, numVertices);
 }
 
-// --- 4. RENDER LOOP ---
+// 4. RENDER LOOP
 function render() {
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     projectionMatrix = perspective(45, canvas.width/canvas.height, 0.1, 1000.0);
     gl.uniformMatrix4fv(projectionMatrixLoc, false, flatten(projectionMatrix));
 
-    // 1. Define Camera
-    var eye = vec3(0, 60, 90); 
-    var at = vec3(0, 5, 0);
+    // UI UPDATE: DISPLAY COORDINATES
+    var coordStr = "OBJECT: [" + objectPos[0].toFixed(2) + ", " + objectPos[1].toFixed(2) + ", " + objectPos[2].toFixed(2) + "]";
+    document.getElementById("coordText").innerText = coordStr;
+
+    // Camera: Moved back to see the larger scene
+    var eye = vec3(0, 100, 160); 
+    var at = vec3(0, 10, 0);
     var up = vec3(0, 1, 0);
 
-    // 2. Save View Matrix separately (Crucial for the "Fix Cube Position" logic)
     var viewMatrix = lookAt(eye, at, up); 
     modelViewMatrix = viewMatrix;         
 
     if(animating) updateAutoSequence();
     else smoothManualControl();
 
-    // === HIERARCHY ===
+    // HIERARCHY
     
     // BASE
     stack.push(modelViewMatrix);
-        modelViewMatrix = mult(modelViewMatrix, rotate(theta[0], [0, 1, 0])); // Base Rotate
+        modelViewMatrix = mult(modelViewMatrix, rotate(theta.base, [0, 1, 0])); 
         
         stack.push(modelViewMatrix);
             modelViewMatrix = mult(modelViewMatrix, translate(0, 1.0, 0));
@@ -164,33 +158,33 @@ function render() {
         modelViewMatrix = mult(modelViewMatrix, rotate(theta.lower, [0, 0, 1])); 
         
         stack.push(modelViewMatrix);
-            modelViewMatrix = mult(modelViewMatrix, translate(0, 10.0, 0));
-            drawPart(1.8, 20.0, 1.8, COLOR_ARM);
+            // Adjusted draw scaling for new length
+            modelViewMatrix = mult(modelViewMatrix, translate(0, LOWER_ARM_HEIGHT/2, 0));
+            drawPart(1.8, LOWER_ARM_HEIGHT, 1.8, COLOR_ARM);
         modelViewMatrix = stack.pop();
 
         // ELBOW
         stack.push(modelViewMatrix);
-             modelViewMatrix = mult(modelViewMatrix, translate(0, 20.0, 0));
+             modelViewMatrix = mult(modelViewMatrix, translate(0, LOWER_ARM_HEIGHT, 0));
              modelViewMatrix = mult(modelViewMatrix, rotate(theta.upper, [0,0,1]));
              drawPart(2.0, 1.5, 2.0, COLOR_JOINT); 
         modelViewMatrix = stack.pop();
 
         // UPPER ARM
-        modelViewMatrix = mult(modelViewMatrix, translate(0, 20.0, 0)); 
+        modelViewMatrix = mult(modelViewMatrix, translate(0, LOWER_ARM_HEIGHT, 0)); 
         modelViewMatrix = mult(modelViewMatrix, rotate(theta.upper, [0, 0, 1])); 
 
         stack.push(modelViewMatrix);
-            modelViewMatrix = mult(modelViewMatrix, translate(0, 7.5, 0));
-            drawPart(1.5, 15.0, 1.5, COLOR_ARM);
+            // Adjusted draw scaling for new length
+            modelViewMatrix = mult(modelViewMatrix, translate(0, UPPER_ARM_HEIGHT/2, 0));
+            drawPart(1.5, UPPER_ARM_HEIGHT, 1.5, COLOR_ARM);
         modelViewMatrix = stack.pop();
 
-        // GRIPPER
-        modelViewMatrix = mult(modelViewMatrix, translate(0, 15.0, 0)); 
+        // GRIPPER (Wrist)
+        modelViewMatrix = mult(modelViewMatrix, translate(0, UPPER_ARM_HEIGHT, 0)); 
 
-        // --- COLLISION LOGIC (Fixed) ---
-        // 1. Get position in Eye Space
-        var tipMatEye = mult(modelViewMatrix, translate(0, 2.5, 0)); 
-        // 2. Undo Camera transformation to get World Space
+        // VISUAL TRACKING
+        var tipMatEye = mult(modelViewMatrix, translate(0, WRIST_OFFSET, 0)); 
         var invView = inverse(viewMatrix);
         var tipMatWorld = mult(invView, tipMatEye);
         gripTipPos = vec3(tipMatWorld[0][3], tipMatWorld[1][3], tipMatWorld[2][3]); 
@@ -200,7 +194,6 @@ function render() {
            drawPart(1.6, 0.6, 1.6, COLOR_GRIP); 
         modelViewMatrix = stack.pop();
         
-        // --- THIS VARIABLE WAS MISSING ---
         var fingerOffset = 0.3 + (theta.gripper * 0.4); 
 
         // Fingers 
@@ -217,7 +210,7 @@ function render() {
         // HELD OBJECT
         if(isHeld) {
             stack.push(modelViewMatrix);
-                modelViewMatrix = mult(modelViewMatrix, translate(0, HOLD_OFFSET, 0)); 
+                modelViewMatrix = mult(modelViewMatrix, translate(0, WRIST_OFFSET, 0)); 
                 drawPart(1.5, 1.5, 1.5, COLOR_OBJECT); 
             modelViewMatrix = stack.pop();
         }
@@ -247,25 +240,20 @@ function render() {
     requestAnimationFrame(render);
 }
 
-// --- 5. LOGIC: REALISTIC PHYSICS ---
+// 5. LOGIC: PRECISE AUTO SEQUENCE
 
-// Smoothly interpolates current value to target value
 function smoothMove(current, target, speed) {
     var diff = target - current;
-    // If very close, snap to target to stop micro-jitter
     if (Math.abs(diff) < 0.05) return target; 
-    // Proportional speed: moves fast when far, slow when close (Ease-Out)
     return current + diff * speed; 
 }
 
 function smoothManualControl() {
-    // In manual mode, keys update targetTheta, this smooths theta
     var armSpeed = 0.1; 
     theta.base  = smoothMove(theta.base, targetTheta.base, armSpeed);
     theta.lower = smoothMove(theta.lower, targetTheta.lower, armSpeed);
     theta.upper = smoothMove(theta.upper, targetTheta.upper, armSpeed);
     theta.gripper = smoothMove(theta.gripper, targetTheta.gripper, 0.2);
-    
     syncSliders();
 }
 
@@ -273,15 +261,10 @@ function toggleGripper() {
     var isClosing = (targetTheta.gripper > 0.5); 
     
     if (isClosing) {
-        targetTheta.gripper = 0.0; // Target closed
+        targetTheta.gripper = 0.0; 
         
-        // Logic happens immediately, visual lags slightly
         setTimeout(function() {
-            var dx = gripTipPos[0] - objectPos[0];
-            var dy = gripTipPos[1] - objectPos[1];
-            var dz = gripTipPos[2] - objectPos[2];
-            var dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
-            
+            var dist = getDistanceToObject();
             if (dist < 4.0) { 
                 isHeld = true;
                 setStatus("GRIPPED (Manual)");
@@ -289,7 +272,7 @@ function toggleGripper() {
                 isHeld = false;
                 setStatus("MISSED (Dist: " + dist.toFixed(1) + ")");
             }
-        }, 300); // 300ms delay for grip to physically close
+        }, 300);
         
     } else {
         targetTheta.gripper = 1.0;
@@ -302,11 +285,9 @@ function toggleGripper() {
 }
 
 function updateAutoSequence() {
-    // Speed constants
-    var armSpeed = 0.04;  
+    var armSpeed = 0.08; 
     var gripSpeed = 0.1;
     
-    // Global pause logic
     if (waitTimer > 0) {
         waitTimer--;
         return;
@@ -318,92 +299,93 @@ function updateAutoSequence() {
     var sol; 
 
     switch(animState) {
-       // --- STEP 1: APPROACH & OPEN ---
-       case 1: 
-            // Hover above the object first
-            sol = solveIK(targetX, targetY + 8.0, targetZ);
-            setTarget(sol);
-            targetTheta.gripper = 1.0; // Open wide
-            
-            if(checkArrived()) { animState = 2; waitTimer = 10; }
-            break;
+    // STEP 1: APPROACH (Hover)
+    case 1: 
+        sol = solveIK(objectPos[0], BASE_HEIGHT + 0.1 + 10.0, objectPos[2]);
+        setTarget(sol);
+        targetTheta.gripper = 1.0; 
+        
+        if(checkArrived()) { 
+            animState = 2; 
+            waitTimer = 10; 
+        }
+        break;
 
-       // --- STEP 2: DESCEND & TOUCH ---
-       case 2: 
-            // Move EXACTLY to the object level to "touch" it
-            sol = solveIK(targetX, targetY, targetZ);
-            setTarget(sol);
-            
-            if(checkArrived()) { 
-                // CRITICAL: We arrived at the cube. 
-                // Wait here for 20 frames to simulate "touching" before gripping.
-                animState = 3; 
-                waitTimer = 20; 
-            }
-            break;
-
-       // --- STEP 3: GRIP ---
+    // STEP 2: DESCEND (Guaranteed Reach)
+    case 2: 
+        sol = solveIK(objectPos[0], BASE_HEIGHT + 3.0, objectPos[2]);
+        setTarget(sol);
+        
+        var dist = getDistanceToObject();
+        setStatus("DESCENDING... H:" + gripTipPos[1].toFixed(1) + " D:" + dist.toFixed(1));
+        
+        if(checkArrived() && dist < 12.0) {
+             animState = 3; 
+             waitTimer = 30; 
+        }
+        break;
+       
+       // STEP 3: GRIP
        case 3: 
-            targetTheta.gripper = 0.6; // Close gently
-            
-            if(Math.abs(theta.gripper - 0.6) < 0.05) {
-                isHeld = true; 
-                animState = 4;
-                setStatus("GRIPPED");
-                waitTimer = 20; 
-                
-                // --- TARGET: BACK OF THE BASE ---
-                // X = 0 (Center), Z = -12 (Back), Y = Floor
-                dropTarget = vec3(0.0, FLOOR_LEVEL, -12.0);
-            }
-            break;
+           targetTheta.gripper = 0.6; 
+           if(Math.abs(theta.gripper - 0.6) < 0.1) {
+               var dist = getDistanceToObject();
+               
+               if (dist < 12.0) {
+                   isHeld = true; 
+                   animState = 4;
+                   setStatus("GRIPPED (Auto)");
+                   waitTimer = 20; 
+                   dropTarget = vec3(0.0, FLOOR_LEVEL, -12.0);
+               } else {
+                   isHeld = false;
+                   animating = false;
+                   setStatus("MISSED (Dist: " + dist.toFixed(1) + ") - ABORTING");
+                   targetTheta.gripper = 1.0; 
+               }
+           }
+           break;
 
-        // --- STEP 4: LIFT ---
+        // STEP 4: LIFT
         case 4: 
             sol = solveIK(targetX, targetY + 12.0, targetZ); 
             setTarget(sol);
-            if(checkArrived()) { animState = 5; waitTimer = 5; }
+            if(checkArrived()) { animState = 5; waitTimer = 10; }
             break;
 
-        // --- STEP 5: MOVE TO BACK ---
+        // STEP 5: TRAVERSE
         case 5: 
-            // Move through high center to avoid hitting the base
-            sol = solveIK(dropTarget[0], dropTarget[1] + WRIST_OFFSET + 12.0, dropTarget[2]);
+            sol = solveIK(dropTarget[0], BASE_HEIGHT + 0.1 + 12.0, dropTarget[2]);
             setTarget(sol);
-            if(checkArrived()) { animState = 6; waitTimer = 10; }
+            if(checkArrived()) { animState = 6; waitTimer = 15; }
             break;
         
-        // --- STEP 6: LOWER ARM ---
+        // STEP 6: LOWER TO DROP
         case 6: 
-            // Descend fully to the drop target level
-            sol = solveIK(dropTarget[0], dropTarget[1] + WRIST_OFFSET, dropTarget[2]);
+            sol = solveIK(dropTarget[0], BASE_HEIGHT + 3.0, dropTarget[2]);
             setTarget(sol);
-            
             if(checkArrived()) { 
                 animState = 7; 
-                waitTimer = 20; // Pause at bottom before releasing
+                waitTimer = 30; 
             }
             break;
 
-        // --- STEP 7: RELEASE ---
+        // STEP 7: RELEASE
         case 7: 
-            targetTheta.gripper = 1.0; // Open
-            
+            targetTheta.gripper = 1.0; 
             if(theta.gripper >= 0.9) {
                 isHeld = false; 
                 objectPos = vec3(gripTipPos[0], FLOOR_LEVEL, gripTipPos[2]);
                 animState = 8; 
-                setStatus("DROPPED AT BACK BASE");
-                waitTimer = 20;
+                setStatus("DROPPED");
+                waitTimer = 30;
             }
             break;
 
-        // --- STEP 8: HOME ---
+        // STEP 8: HOME
         case 8: 
-            // Lift slightly first
-            sol = solveIK(dropTarget[0], dropTarget[1] + WRIST_OFFSET + 8.0, dropTarget[2]);
+            sol = solveIK(dropTarget[0], BASE_HEIGHT + 0.1 + 8.0, dropTarget[2]);
             setTarget(sol);
-            
             if(checkArrived()) {
                  targetTheta.base = 0;
                  targetTheta.lower = 0;
@@ -418,8 +400,14 @@ function updateAutoSequence() {
     theta.lower = smoothMove(theta.lower, targetTheta.lower, armSpeed);
     theta.upper = smoothMove(theta.upper, targetTheta.upper, armSpeed);
     theta.gripper = smoothMove(theta.gripper, targetTheta.gripper, gripSpeed);
-    
     syncSliders();
+}
+
+function getDistanceToObject() {
+    var dx = gripTipPos[0] - objectPos[0];
+    var dy = gripTipPos[1] - objectPos[1];
+    var dz = gripTipPos[2] - objectPos[2];
+    return Math.sqrt(dx*dx + dy*dy + dz*dz);
 }
 
 function setTarget(sol) {
@@ -429,7 +417,7 @@ function setTarget(sol) {
 }
 
 function checkArrived() {
-    var tol = 0.5; // Stricter tolerance for smoother look
+    var tol = 1.0; 
     return Math.abs(theta.base - targetTheta.base) < tol && 
            Math.abs(theta.lower - targetTheta.lower) < tol && 
            Math.abs(theta.upper - targetTheta.upper) < tol;
@@ -442,8 +430,10 @@ function solveIK(tx, ty, tz) {
     var r = Math.sqrt(tx*tx + tz*tz); 
     var h = ty - BASE_HEIGHT; 
 
-    var L1 = LOWER_ARM_HEIGHT;
-    var L2 = UPPER_ARM_HEIGHT;
+    // USE UPDATED DIMENSIONS
+    var L1 = LOWER_ARM_HEIGHT; 
+    var L2 = UPPER_ARM_HEIGHT; 
+    
     var d = Math.sqrt(r*r + h*h);
 
     if(d > (L1 + L2)) d = L1 + L2 - 0.01;
@@ -463,7 +453,7 @@ function solveIK(tx, ty, tz) {
     return { base: baseDeg, lower: -finalLower, upper: -finalUpper };
 }
 
-// --- UTILITIES ---
+// UTILITIES
 function buildCube() {
     quad(1, 0, 3, 2, vec3(0, 0, 1)); 
     quad(2, 3, 7, 6, vec3(1, 0, 0)); 
@@ -488,7 +478,6 @@ function quad(a, b, c, d, normal) {
 function radians(deg) { return deg * Math.PI / 180.0; }
 
 function setupUI() {
-    // Sliders now update TARGETS, not direct values
     document.getElementById("baseSlider").oninput = function() { targetTheta.base = parseFloat(this.value); };
     document.getElementById("lowerSlider").oninput = function() { targetTheta.lower = parseFloat(this.value); };
     document.getElementById("upperSlider").oninput = function() { targetTheta.upper = parseFloat(this.value); };
@@ -504,7 +493,7 @@ function setupUI() {
 function setupKeyboardControl() {
     window.addEventListener('keydown', function(event) {
         if(animating) return; 
-        var step = 5.0; // Larger step because we are targeting, not moving directly
+        var step = 5.0; 
         switch(event.key) {
             case "a": case "A": case "ArrowLeft":  targetTheta.base -= step; break;
             case "d": case "D": case "ArrowRight": targetTheta.base += step; break;
