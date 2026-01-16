@@ -301,7 +301,7 @@ function updateAutoSequence() {
     switch(animState) {
     // STEP 1: APPROACH (Hover)
     case 1: 
-        sol = solveIK(objectPos[0], BASE_HEIGHT + 0.1 + 10.0, objectPos[2]);
+        sol = solveIK(objectPos[0] - 3.0 , BASE_HEIGHT + 13.50, objectPos[2]);
         setTarget(sol);
         targetTheta.gripper = 1.0; 
         
@@ -313,13 +313,13 @@ function updateAutoSequence() {
 
     // STEP 2: DESCEND (Guaranteed Reach)
     case 2: 
-        sol = solveIK(objectPos[0], BASE_HEIGHT + 3.0, objectPos[2]);
+        sol = solveIK(objectPos[0] - 3.0, BASE_HEIGHT + 13.50, objectPos[2]);
         setTarget(sol);
         
         var dist = getDistanceToObject();
         setStatus("DESCENDING... H:" + gripTipPos[1].toFixed(1) + " D:" + dist.toFixed(1));
         
-        if(checkArrived() && dist < 12.0) {
+        if(checkArrived() && dist < 7.0) {
              animState = 3; 
              waitTimer = 30; 
         }
@@ -486,7 +486,7 @@ function setupUI() {
     document.getElementById("btnReset").onclick = function() {
         animating = false; animState = 0;
         targetTheta = { base: 0, lower: 0, upper: 0, gripper: 1.0 };
-        isHeld = false; objectPos = vec3(15.0, FLOOR_LEVEL, 0.0); 
+        isHeld = false; objectPos = vec3(22.0, FLOOR_LEVEL, 0.0); 
         setStatus("SYSTEM RESET"); 
     };
 }
